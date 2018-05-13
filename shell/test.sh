@@ -43,10 +43,9 @@ hhelp(){
 	echo "********************************"
 }
 
-check_user='whoami'
-if [ "$check_user" == "root" ]; then
-	echo 'must login with root account'
-	exit 1;
+if [ "$#" -eq 0 ]; then
+        usage
+        exit 0
 fi
 
 case $1 in 
@@ -60,6 +59,11 @@ case $1 in
 	;;
 esac
 
+#check_user='whoami'
+#if [ "$check_user" != "root" ]; then
+#	echo 'must login with root account'
+#	exit 1;
+#fi
 
 case $1 in
 	-F|Fasttrack )
