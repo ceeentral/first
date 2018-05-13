@@ -2,7 +2,7 @@
 #ss=207.148.110.222
 
 
-function ping{
+function Ping(){
 	for ip in $(cat $1 | sed "/^#/d")
 	do
 		ping -c 2 $ip >>/Users/central/script/log
@@ -21,8 +21,8 @@ function ping{
 start(){
 	if [["$# -lt 1"]]
 		then
-		ping Fasttrack
-		ping 577-step2
+		Ping Fasttrack
+		Ping 577-step2
 	fi
 	if [["$# -ge 2"]]
 		then
@@ -31,29 +31,42 @@ start(){
 }
 
 usage(){
-	echo "haha, foolish!"
+	echo "haha, foolish! try 'test.sh -h' "
 }
 
-case $1 in 
-	-h|help )
-	usage
-	exit 0;
-	;;
-	-v|version )
-	echo 'chuanchuan ping Version 0.1, 2018-05-05, Copyright (c) 2018 chuancuhan'
-esac
+hhelp(){
+	echo "********************************"
+	echo "-F ping ip of Fasttrack "
+	echo "-5 ping ip of 577-step2 "
+	echo "-h help"
+	echo "-v version "
+	echo "********************************"
+}
 
-if ["$UEID" -ne 0 ]; then
+check_user='whoami'
+if [ "$check_user" == "root" ]; then
 	echo 'must login with root account'
 	exit 1;
 fi
 
+case $1 in 
+	-h|help )
+	hhelp
+	exit 0;
+	;;
+	-v|version )
+	echo 'chuanchuan ping Version 0.1, 2018-05-05, Copyright (c) 2018 chuancuhan'
+	exit 0;
+	;;
+esac
+
+
 case $1 in
 	-F|Fasttrack )
-	ping Fasttrack
+	Ping Fasttrack
 	;;
 	-5|577-step2 )
-	ping 577-step2
+	Ping 577-step2
 	;;
 	* )
 	usage
