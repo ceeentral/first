@@ -1,0 +1,7 @@
+for shell:
+why echo $( 5 * 4 ) 出来 bash 5 command not found
+echo $((5*4)) 出来 20
+echo $(5*4) 出来5*4 command not found
+#直接echo $54 出来4 
+#为啥子呢？？？括号在shell中啥意思
+#见evernote
