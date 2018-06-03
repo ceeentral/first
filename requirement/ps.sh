@@ -8,4 +8,5 @@ lgps=${day}slave${tm}.log
 bsh 1
 journalctl -ab>${lgps}
 scp ${lgps} ${oamadd}
+#first logic journal grab
 

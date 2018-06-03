@@ -1,5 +1,5 @@
 #现在还缺的是
-#1.upue log, oam log. 
+#1.upue log, oam log. Done
 #2.ASIk 上bsh 1, ps的log；/tmp/start.log  
 #3.ABIK 上 /tmp/node_xx/tmp/FSP_xx.log
 #L2-L1's wireshark trace(need mirror,both side) ,F1AP log and X2-log
