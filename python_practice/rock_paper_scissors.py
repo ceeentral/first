@@ -52,10 +52,27 @@ startgame()
 print p1
 print p2
 rockpaperscissors(p1, p2)
-
-# or another way
-# def racks():
-#     
+    
 
 #https://www.practicepython.org/exercise/2014/03/26/08-rock-paper-scissors.html
 
+
+
+#p1 = raw_input("what's your request?\n\n").lower()
+#p2 = raw_input("what's your request?\n\n").lower()
+#
+#choices = list(['papper', 'rock', 'scissors'])
+#
+#if p1 not in choices:
+#	print("you a goof")
+#if p2 not in choices:
+#	print("you a goof")
+#if p1 == p2:
+#	print("it's a draw")
+#if choices.index(p1) == (choices.index(p2) + 1 ) % 3:
+#	print ("player 2 wins!")
+#if choices.index(p2) == (choices.index(p1) + 1 ) % 3:
+#	print ("player 1 wins!")
+##python 中有list index和字符串index， 详情可见 
+##http://www.runoob.com/python/att-string-index.html
+##http://www.runoob.com/python/att-list-index.html
