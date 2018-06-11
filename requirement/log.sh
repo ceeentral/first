@@ -17,7 +17,7 @@ ssh cpue-0.local "sudo journalctl -ab>${lgue} && scp ${lgue} oam-0.local:/home/r
 ssh cpcl-0.local "sudo journalctl -ab>${lgcl} && scp ${lgcl} oam-0.local:/home/robot/ && rm ${lgcl} && exit "
 ssh cpnb-0.local "sudo journalctl -ab>${lgnb} && scp ${lgnb} oam-0.local:/home/robot/ && rm ${lgnb} && exit "
 ssh upue-0.local "sudo journalctl -ab>${lgup} && scp ${lgup} oam-0.local:/home/robot/ && rm ${lgup} && exit "
-journalctl -ab>${lgom}
+sudo journalctl -ab>${lgom}
 
 #3tral
 
