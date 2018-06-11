@@ -10,4 +10,9 @@ def stripe(lis):
     return b
 print stripe(a)
 
+#clean answer
+##def list_ends(a_list):
+##    return [a_list[0], a_list[len(a_list)-1]]
 
+
+#https://www.practicepython.org/exercise/2014/04/25/12-list-ends.html
