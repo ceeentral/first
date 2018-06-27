@@ -1,27 +1,21 @@
 __author__ = '3tral'
-def reverorder():
-	st = raw_input("please input a string you want to reverse:\n")
-	result = st.split()
-	ab = st.split()[::-1]
-	return ab
-print reverorder()
-#but my result is a list format, not a string format. it's not big deal, but i care.
-#so it can be change like the answer:
-# return ' '.join(ab)
+import random
 
-# clean answer:
-def reverseWord(w):
-  return ' '.join(w.split()[::-1])
+def pwgen():
+  letterlt = 'abcdefghijklmnopqrstuvwxyzABC,.;'
+  pw = ''
+  for i in range(8):
+    pw += random.choice(letterlt)
+  print pw
+pwgen()
 
-#another answer:
-def reverse_v1(x):
-  y = x.split()
-  result = []
-  for word in y:
-    result.insert(0,word)  #always insert the words at list[0]  
-  return " ".join(result)
-def reverse_v4(x):
-  y = x.split()
-  y.reverse()  #python already builtin the function
-  return " ".join(y)
-#https://www.practicepython.org/exercise/2014/05/21/15-reverse-word-order.html
+
+###answer from internet
+##import string
+##import random
+##characters = string.ascii_letters + string.punctuation  + string.digits
+##password =  "".join(random.choice(characters) for x in range(random.randint(8, 16)))
+##print password
+##
+###but i didn't check the capital and nurmerial, so need to update.
+#https://www.practicepython.org/exercise/2014/05/28/16-password-generator.html
