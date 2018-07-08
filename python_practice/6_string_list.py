@@ -1,15 +1,15 @@
 __author__ = '3tral'
-s1 = raw_input("please input a sting: ")
+s1 = input("please input a sting: ")
 def reverse(abc):
 
 	a = len(abc)
-	print a
+	print (a)
 	b = ''
 	for i in range(0, a):
 		b += abc[a-1-i]
 	return b
 x = reverse(s1)
-print x
+print (x)
 if x == s1:
 	print (s1 + " is a palindrome")
 else:
