@@ -12,11 +12,11 @@ lgnb=${day}cpnb_journal${tm}.log
 lgup=${day}upue_journal${tm}.log
 lgom=${day}oam_journal${tm}.log
 
-ssh cpif-0.local "sudo journalctl -ab>${lgif} && scp ${lgif} oam-0.local:/home/robot/ && rm ${lgif} && exit "
+ssh cpif-0.local "sudo journalctl -ab>${lgif} && scp ${lgif} oam-0.local:/home/robot/ && rm ${lgif} && scp cuif*.pcap oam-0.local:/home/robot/ && exit "
 ssh cpue-0.local "sudo journalctl -ab>${lgue} && scp ${lgue} oam-0.local:/home/robot/ && rm ${lgue} && exit "
 ssh cpcl-0.local "sudo journalctl -ab>${lgcl} && scp ${lgcl} oam-0.local:/home/robot/ && rm ${lgcl} && exit "
 ssh cpnb-0.local "sudo journalctl -ab>${lgnb} && scp ${lgnb} oam-0.local:/home/robot/ && rm ${lgnb} && exit "
-ssh upue-0.local "sudo journalctl -ab>${lgup} && scp ${lgup} oam-0.local:/home/robot/ && rm ${lgup} && sudo scp /tmp/LINUX_startup.log oam-0.local:/home/robot/LINUX_startup_UPUE && exit"
+ssh upue-0.local "sudo journalctl -ab>${lgup} && scp ${lgup} oam-0.local:/home/robot/ && rm ${lgup} && sudo scp /tmp/LINUX_startup.log oam-0.local:/home/robot/LINUX_startup_UPUE && scp cuupue*.pcap oam-0.local:/home/robot/ && exit"
 sudo journalctl -ab>${lgom}
 
 #3tral
