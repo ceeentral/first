@@ -18,6 +18,8 @@ ssh cpcl-0.local "sudo journalctl -ab>${lgcl} && scp ${lgcl} oam-0.local:/home/r
 ssh cpnb-0.local "sudo journalctl -ab>${lgnb} && scp ${lgnb} oam-0.local:/home/robot/ && rm ${lgnb} && exit "
 ssh upue-0.local "sudo journalctl -ab>${lgup} && scp ${lgup} oam-0.local:/home/robot/ && rm ${lgup} && sudo scp /tmp/LINUX_startup.log oam-0.local:/home/robot/LINUX_startup_UPUE && scp cuupue*.pcap oam-0.local:/home/robot/ && exit"
 sudo journalctl -ab>${lgom}
+cp /opt/nokia/SS_MzOam/cloud-racoam/logs/startup_RACOAM.log .
+cp /opt/nokia/SS_MzOam/cloud-siteoam/siteoam/logs/startup_SITEOAM.log .
 
 #3tral
 
