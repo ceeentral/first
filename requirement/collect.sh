@@ -19,7 +19,7 @@ lgom=oam_journal${day}${tm}.log
 function command_on_du(){
 	#echo "loner=\`arp -i etha01|grep fsp|awk '{ print \$1 }'|grep c\`">ps.sh
 	#echo "ABIL=\`arp -i etha01|grep fsp|awk '{ print \$1 }'|grep a\`">>ps.sh
-	echo "journalctl -ab>/tmp/${lgmaster}">>ps.sh 
+	echo "journalctl -ab>/tmp/${lgmaster}">ps.sh 
 	echo "ls /tmp/*startup_* | sed -r -n 's/(.*)startup_(.*)/mv & \1du_master_startup_\2/e'">>ps.sh
 	echo "bsh 1 >/dev/null 2>&1 'journalctl -ab>${lgslave} && scp -o StrictHostKeyChecking=no ${lgslave} /tmp/startup_DEFAULT* toor4nsn@192.168.253.1:/tmp/  && rm ${lgslave} && exit '">>ps.sh
 	#echo "scp -q \$loner:/var/log/l1sw-startup.log.gz /tmp/">>ps.sh
