@@ -26,7 +26,7 @@ function command_on_du(){
 	#echo "scp -q \$ABIL:/tmp/ASPA* /tmp/ ">>ps.sh
 	echo "{ echo "log -c"; sleep 8; } | telnet localhost 15007 >>/dev/null 2>&1">>ps.sh
 	echo "cd /tmp ">>ps.sh
-	echo "ls /tmp/startup_DEFAULT | sed -r -n 's/(.*)startup_(.*)/mv & \1du_slave_startup_\2/e'">>ps.sh
+	echo "ls /tmp/startup_DEFAULT* | sed -r -n 's/(.*)startup_(.*)/mv & \1du_slave_startup_\2/e'">>ps.sh
 	echo "tar zcPf du.tgz ${lgmaster} ${lgslave} *startup_*   /ram/*runtime.zip  ">>ps.sh
 }
 
