@@ -1,30 +1,33 @@
 #!/usr/bin/bash
 #adapt to your own enviroment info for below variable##
-du=fc00::172:18:5:35
-ABIL=fsp-1-1a
-loner=fsp-1-1c
+du=fc00::172:18:5:38
 #adapt your du,ABIL and loner's hostname, you can use arp -a to check the hostname
 pswd='oZPS0POrRieRtu'
 
 day=$(date| awk '{print $2$3}')
 tm=$(date| awk '{print $4}'| awk -F: '{print $1$2}')
-lgps=${day}du_slave${tm}.log
-lghi=${day}du_master${tm}.log
-lgif=${day}cpif_journal${tm}.log
-lgue=${day}cpue_journal${tm}.log
-lgcl=${day}cpcl_journal${tm}.log
-lgnb=${day}cpnb_journal${tm}.log
-lgup=${day}upue_journal${tm}.log
-lgom=${day}oam_journal${tm}.log
+lgslave=du_slave_journal${day}${tm}.log
+lgmaster=du_master_journal${day}${tm}.log
+lgif=cpif_journal${day}${tm}.log
+lgue=cpue_journal${day}${tm}.log
+lgcl=cpcl_journal${day}${tm}.log
+lgnb=cpnb_journal${day}${tm}.log
+lgup=upue_journal${day}${tm}.log
+lgom=oam_journal${day}${tm}.log
 
 
-function ps(){
-	echo "journalctl -ab>/tmp/${lghi}">ps.sh 
-	echo "bsh 1 >/dev/null 2>&1 'journalctl -ab>${lgps} && scp -o StrictHostKeyChecking=no ${lgps} toor4nsn@192.168.253.1:/tmp/ && rm ${lgps} && exit '">>ps.sh
-	echo "scp -q $loner:/var/log/l1sw-startup.log.gz /tmp/">>ps.sh
-	echo "scp -q $ABIL:/tmp/ASPA* /tmp/ ">>ps.sh
+function command_on_du(){
+	#echo "loner=\`arp -i etha01|grep fsp|awk '{ print \$1 }'|grep c\`">ps.sh
+	#echo "ABIL=\`arp -i etha01|grep fsp|awk '{ print \$1 }'|grep a\`">>ps.sh
+	echo "journalctl -ab>/tmp/${lgmaster}">>ps.sh 
+	echo "ls /tmp/*startup_* | sed -r -n 's/(.*)startup_(.*)/mv & \1du_master_startup_\2/e'">>ps.sh
+	echo "bsh 1 >/dev/null 2>&1 'journalctl -ab>${lgslave} && scp -o StrictHostKeyChecking=no ${lgslave} /tmp/startup_DEFAULT* toor4nsn@192.168.253.1:/tmp/  && rm ${lgslave} && exit '">>ps.sh
+	#echo "scp -q \$loner:/var/log/l1sw-startup.log.gz /tmp/">>ps.sh
+	#echo "scp -q \$ABIL:/tmp/ASPA* /tmp/ ">>ps.sh
+	echo "{ echo "log -c"; sleep 8; } | telnet localhost 15007 >>/dev/null 2>&1">>ps.sh
 	echo "cd /tmp ">>ps.sh
-	echo "tar zcf du.tgz ${lghi} ${lgps} startup*  l1sw-startup.log.gz ASPA*  ">>ps.sh
+	echo "ls /tmp/startup_DEFAULT | sed -r -n 's/(.*)startup_(.*)/mv & \1du_slave_startup_\2/e'">>ps.sh
+	echo "tar zcPf du.tgz ${lgmaster} ${lgslave} *startup_*   /ram/*runtime.zip  ">>ps.sh
 }
 
 function wrsa(){
@@ -70,7 +73,8 @@ function getcu(){
 	fi
 	zip -q log.zip du.tgz LINUX_startup_UPUE.log CU_startup_RACOAM.log CU_startup_SITEOAM.log ${lgom} ${lgup} ${lgnb} ${lgcl} ${lgue} ${lgif} *.pcap >/dev/null 2>&1
 	rm -f *.log ps.sh du.tgz 
-
+	echo "collect cu logs done"
+	echo "please check log.zip in current path"
 }
 
 
@@ -78,7 +82,7 @@ function getcu(){
 
 
 function getdu(){
-ps
+command_on_du
 if [ $1 == v6 ]
 then
 	
@@ -107,10 +111,12 @@ else
 		scp -q toor4nsn@$du:/tmp/du.tgz .
 	fi
 fi
+echo "collect du's log done"
 }
 
 function ddte(){
 	rm -f *.log *.pcap *.tgz *.zip ps.sh 
+	echo "delete logs done"
 }
 
 
@@ -127,6 +133,7 @@ function usage(){
 	echo "-6 ipv6     :if your TL is ipv6, please adapt your DU ip "
 	echo "-v version"
 	echo "-g          :make your cu can ssh du"
+	echo "adapt your du,ABIL and loner's hostname, you can use arp -a to check the hostname"
 	echo "#########################################################"
 }
 
@@ -161,4 +168,19 @@ fi
 
 exit 0
 
+#board=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep c|wc -l `
+#echo $board
+#if [ $board == 3 ]; then
+#        ABIL1=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep 1c`
+#        ABIL2=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep 2c`
+#        ABIL3=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep 3c`
+#elif [ $board == 2 ]; then
+#        ABIL1=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep 1c`
+#        ABIL2=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep 2c`
+#else
+#        ABIL1=`arp -i etha01|grep fsp|awk '{ print $1 }'|grep 1c`
+#fi
+#echo $ABIL1
+#echo $ABIL2
+#echo $ABIL3
 
