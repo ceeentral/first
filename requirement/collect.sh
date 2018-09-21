@@ -68,11 +68,12 @@ function getcu(){
 	sudo journalctl -ab>${lgom}
 	cp /opt/nokia/SS_MzOam/cloud-racoam/logs/startup_RACOAM.log ./CU_startup_RACOAM.log
 	cp /opt/nokia/SS_MzOam/cloud-siteoam/siteoam/logs/startup_SITEOAM.log ./CU_startup_SITEOAM.log
+	cp /mnt/services/mzoam/config/4.1144.36-R4-B4-NSA/bims/* ~/
 	if [[ -e log.zip ]];then 
 		rm log.zip
 	fi
-	zip -q log.zip du.tgz LINUX_startup_UPUE.log CU_startup_RACOAM.log CU_startup_SITEOAM.log ${lgom} ${lgup} ${lgnb} ${lgcl} ${lgue} ${lgif} *.pcap >/dev/null 2>&1
-	rm -f *.log ps.sh du.tgz 
+	zip -q log.zip du.tgz LINUX_startup_UPUE.log CU_startup_RACOAM.log CU_startup_SITEOAM.log *bim* ${lgom} ${lgup} ${lgnb} ${lgcl} ${lgue} ${lgif} *.pcap >/dev/null 2>&1
+	rm -f *.log ps.sh du.tgz *bim*
 	echo "collect cu logs done"
 	echo "please check log.zip in current path"
 }
