@@ -8,16 +8,23 @@ b = str(a)
 c = list(b)
 count = len(c)
 A = 0
-if c[-1] == c[0]:
-	A = A + int(c[0])
-else:
-	pass
-
-for i in range(0, count-1):
-	if c[i] == c[i+1]:
-		A = A + int(c[i])
+def part1():
+	
+	if c[-1] == c[0]:
+		A = A + int(c[0])
 	else:
 		pass
-print(A)
+
+	for i in range(0, count-1):
+		if c[i] == c[i+1]:
+			A = A + int(c[i])
+		else:
+			pass
+	print(A)
 
 #part 2
+for i in range(0, count-1):
+		if c[i] == c[-(count/2)+1]:
+			A = A + int(c[i])
+		else:
+			pass
