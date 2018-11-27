@@ -7,9 +7,9 @@ a = 7773699185668922525314233521474629493231881345484917782346867434651242648277
 b = str(a)
 c = list(b)
 count = len(c)
-A = 0
+num = int(input("which part do you want to use(input 1/2): "))
 def part1():
-	
+	A = 0
 	if c[-1] == c[0]:
 		A = A + int(c[0])
 	else:
@@ -22,9 +22,19 @@ def part1():
 			pass
 	print(A)
 
+
 #part 2
-for i in range(0, count-1):
-		if c[i] == c[-(count/2)+1]:
+def part2():
+	A = 0
+	for i in range(0, int(count/2)):
+		if c[i] == c[int((count/2))+i]:
 			A = A + int(c[i])
 		else:
 			pass
+	print(A*2)
+if num == 1:
+	part1()
+elif num == 2:
+	part2()
+else:
+	print("you've input wrong number, please use right number(1/2): ")
