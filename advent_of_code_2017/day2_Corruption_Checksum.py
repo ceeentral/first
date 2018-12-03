@@ -1,16 +1,22 @@
 #advant of code 2017
 #day 2 Corruption Checksum
 #_authour_=chuan
+###this problem i can't understand right now, so borrow Auther's answer.
 
 def Array(lines):
     "Parse an iterable of str lines into a 2-D array. If `lines` is a str, splitlines."
     if isinstance(lines, str): lines = lines.splitlines()
+    print(lines)
     return mapt(Vector, lines)
+print('test')
 def mapt(fn, *args): 
     "Do a map, and make the results into a tuple."
+    print("mapt, before tuple")
+    print map(fn, *args)
     return tuple(map(fn, *args))
 def Vector(line):
     "Parse a str into a tuple of atoms (numbers or str tokens)."
+    print("in vector, before mapt")
     return mapt(Atom, line.replace(',', ' ').split())
 
 def Atom(token):
@@ -49,5 +55,11 @@ arA = Array('''414	382	1515	319	83	1327	116	391	101	749	1388	1046	1427	105	1341	
 	#count = sum(max(row)-min(row))
 #print(count)
 #print(arA.splitlines())
-
-print(arA[1][0])
+an = 0
+for row in arA:
+	a = max(row)
+	print(a)
+	b = min(row)
+	print(b)
+	an = an + max(row) - min(row)
+print(an)
