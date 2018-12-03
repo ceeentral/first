@@ -6,7 +6,24 @@
 //declare  setLocationCells() setter method take an int array which has 3 cell location as int
 
 //////////////////
-//String checkYorself(String userGuess)
+public String checkYorself(String[] userGuess) {
+	int guess = Interger.parseInt(userGuess);
+	String result = 'miss';
+	for (int cell : locationCells) {
+		if ( guess == cell) {
+			result = 'hit';
+			numofHits++;
+			break;
+
+		}
+	}
+	if (numofHits == locationCells.lenth) {
+		result = 'kill';
+
+	}
+	System.out.println(result);
+	return result;
+}
 	//get the user guess as a String Para
 	//Conver the user guess to an int 
 	//repeat each of the location cells in the int array
