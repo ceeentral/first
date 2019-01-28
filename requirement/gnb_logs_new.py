@@ -1,0 +1,1062 @@
+#! /bin/python
+# 
+# This script collects 5G18A cloud gNB logs to local running folder, named as: <GNB_x.x.x.x_YMDHMS.zip>
+# It can be run directly on gNB's OAM-0 VM, or from local PC by specifing oam-0 IP address or hostname as below:
+#
+# ./gnb_logs.py [User@]Host [Password]
+#
+# 
+# Any problem or suggestion, please contact peidong.li@nokia-sbell.com
+#
+###############################################################
+
+# You can config oam and asik IP here beforehand as well:
+
+oam_ip = ''
+rap = ''
+
+###############################################################
+
+#2019.1.25 ver 1.0
+version = 1.0
+
+
+info = """
+Usage:
+gnb_logs.py [USER@]HOST [PASSWORD] [OPTIONS...]	
+      
+Options:
+  -s, --small        Collect minimum logs only
+  -f, --full         Collect full logs
+  -t, --tti [time]   Collect ttiTrace for specified seconds
+  -r, --rap          Give RAP IP address  
+  
+  -h, --help         Display this help and exit       
+
+Examples:
+  > gnb_logs.py                      ...Collect default logs by run script from GNB's oam-0 
+  > gnb_logs.py 10.68.135.99         ...Collect from the addressed GNB, with default robot login
+  > gnb_logs.py 10.68.135.99 --full  ...Collect full logs from the GNB
+  > gnb_logs.py 10.68.135.99 --rap 192.168.2.60    
+                                     ...Give RAP (ASIK) address to save resolving time
+  > gnb_logs.py --tti 10             ...Collect ttiTrace log for 10 seconds   
+	
+	
+"""
+
+import paramiko
+import time
+import sys
+import datetime
+import logging
+import threading
+import collections
+import os
+import re
+
+#Note: make sure the cmd shouldn't contain prompt string...
+#remember to always execute 'exit' after login_target() call
+
+#prefix of local log file. 
+#full name would be: <prefix + oam ip + time>, like 'GNB_10.56.16.45_20180118_184814.tar.gz'
+
+log_file_prefix = "GNB"
+MIN_LOG_SZ = 200
+
+
+LEVEL_MIN = 1
+LEVEL_NORM = 2
+LEVEL_FULL = 3
+
+log_level = LEVEL_NORM
+local_level = logging.ERROR
+
+#default login info
+ssh_port = 22
+oam_usr = "robot"
+oam_pwd = "rastre1"
+oam_prompt = '$ '
+oam_max_ses = 10
+
+# to generate several seconds' ttiTrace before collecting, if needed:
+TTI_NONE = 0
+TTI_INCLUDE = 1
+TTI_ONLY = 2
+
+tti_on = TTI_NONE
+tti_len = 10
+tti_max = 60
+tti_path = "/var/ttiTrace/"
+
+owner = {}
+hosts = []
+
+MAX_RUNTIME = 300
+t_runtime = 0
+
+BAR_LEN = 50
+bar_stop = False
+
+class fileException(Exception):
+	def __init__(self,info):
+		self.info = info
+	def __str__(self):
+		print self.info
+		
+def log_setup(my_level):
+  # set up logging to file
+  logging.basicConfig(level=my_level,
+                      format='%(asctime)s %(name)-5s %(levelname)-5s %(message)s',
+                      datefmt='%m-%d %H:%M',
+                      filename='stdout.log',
+                      filemode='w')
+  # define a Handler which writes INFO messages or higher to the sys.stderr
+  console = logging.StreamHandler()
+  console.setLevel(logging.ERROR)
+  #console.setLevel(logging.DEBUG)
+  # set a format which is simpler for console use
+  formatter = logging.Formatter('%(name)-5s: %(levelname)-5s %(message)s')
+  # tell the handler to use this format
+  console.setFormatter(formatter)
+  # add the handler to the root logger
+  logging.getLogger('').addHandler(console)
+
+def send_str_and_wait(shell, log_header, command, wait_time):
+	logging.debug ("_" + log_header + " [s::" + command + "]+")
+	shell.send(command)
+	buff = ""
+	time.sleep(wait_time)
+	buff = shell.recv(8192)
+	logging.debug ("_" + log_header + " [r::" + buff+"].")
+	return buff
+	
+def send_str_wait_str(shell, log_header, command, wait_str, escapes=None, response=None, enter=True, rcv_key=None,tot_key=None,callback=None):
+	r = 0
+	i = 0
+	if enter:
+		if not str(command).endswith('\n'):
+			command += '\n'
+	shell.send(command)
+	logging.debug ("_"+log_header + " [s:"+command+"]"+wait_str)
+	rcv_buf = ''
+	#while not wait_str in rcv_buf:
+	while not rcv_buf.endswith(wait_str):
+		if shell.recv_ready():
+			rcv_buf += shell.recv(9000)
+			logging.debug ("_"+log_header + " [r:"+rcv_buf+"]")
+			if rcv_key:
+				n = rcv_buf.count(rcv_key)
+				if n:
+					if callback:
+						callback(n,tot_key)
+			if response:
+				for key in response:
+					if key in rcv_buf:
+						if enter:
+							response[key]+='\n'
+						shell.send(response[key])
+						#time.sleep(2)
+						logging.debug ("_"+log_header + " [s:"+ response[key] + "]")
+						rcv_buf = ''
+						break
+			if escapes:
+				for elem in escapes:
+					if elem in rcv_buf:
+						logging.error("_" + log_header + " rcv fail:" + elem + " !")
+						r = 1
+						return (r, rcv_buf)
+	logging.info("_" + log_header + " " + rcv_buf)
+	return (r, rcv_buf)
+
+def get_jour_log(shell, node_name, shell_prompt):
+	files = 0
+	ssh = ''
+	if '$' in shell_prompt:
+		ssh = 'sudo '
+	#ssh += "journalctl -b | gzip> /tmp/"+(node_name)+"_journal_log.gz\n"
+	ssh += "journalctl -b > /tmp/"+(node_name)+"_journal.log\n"
+	ret,buf = send_str_wait_str(shell, node_name, ssh, shell_prompt)
+	if not ret:
+		files+=1
+
+	return files
+	
+def get_aashell_logs(shell, node_name, shell_prompt):
+	files=0
+	esp = ['timed out','Connection refused',shell_prompt] #'Connection closed'
+	rsp = {'telnet>':'quit\n','exit telnet':'e\n','^]':'\n'}
+	buf = send_str_and_wait(shell, node_name, "telnet 0 15007\n", 6)
+	if not "AaShell>" in buf:
+		if not shell_prompt in buf:
+			send_str_wait_str(shell, node_name, "\x1D", shell_prompt,esp,rsp,False)
+		logging.error("_" + node_name + " collect AaShell logs failed!")
+	else:
+		send_str_wait_str(shell, node_name, "log -c full -z "+node_name+"_aashell_log.zip\n", "AaShell> ",esp)
+		send_str_wait_str(shell, node_name, "quit\n", shell_prompt,esp)    
+		files +=1
+	return files
+		
+def get_res_log(shell, node_name, shell_prompt):
+	files = 0
+
+	send_str_wait_str(shell, node_name, "echo -e '\n\n###date;uptime'>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "date>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "uptime>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "echo -e '\n\n###top -n 2'>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "top -b -n 1 -w>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "echo -e '\n\n###df -h'>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "df -h>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	send_str_wait_str(shell, node_name, "echo -e '\n\n###ifconfig'>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)	
+	send_str_wait_str(shell, node_name, "ifconfig>> /tmp/"+(node_name)+"_stat.log\n", shell_prompt)
+	files +=1
+	
+	return files
+
+def scp_log(shell, node_name, shell_prompt, sftp_ip, sftp_usr, sftp_pwd): 
+	esp = ['timed out','Connection refused','Permission denied']
+	rsp = {'? (y/n)':'y','?':'yes','assword:':sftp_pwd}
+	ssh = "scp /tmp/"+(node_name)+"_* "+sftp_usr+"@"+sftp_ip+":/tmp"
+	
+	ret,buf = send_str_wait_str(shell, node_name, ssh, shell_prompt, esp, rsp)
+	if ret:
+		logging.info("_" + node_name + " scp file transfer failed!")
+	
+	#cleanup
+	send_str_wait_str(shell, node_name, "rm -f /tmp/" + node_name + "_*", shell_prompt)	  
+
+def scp_log2(shell, node_name, shell_prompt, fname, d_folder, sftp_ip, sftp_usr, sftp_pwd):
+	  #time.sleep(1)
+	  buf = send_str_and_wait(shell, node_name, "scp " + fname + " " + sftp_usr + "@"+sftp_ip+":" + d_folder + "\n", 4)
+	  if "?" in buf:
+	  	send_str_and_wait(shell, node_name, "yes\n",2)
+	  ret,buf1 = send_str_wait_str(shell, node_name, sftp_pwd+"\n", shell_prompt)
+	  #cleanup
+	  send_str_wait_str(shell, node_name, "rm -f " + fname + "\n", shell_prompt)	  
+
+def scp_from(shell, node_name, shell_prompt, fname, d_folder, sftp_ip, sftp_usr, sftp_pwd):
+	  buf = send_str_and_wait(shell, node_name, "scp " + sftp_usr + "@"+sftp_ip+":" + fname + " " + d_folder + "\n", 4)
+	  if "?" in buf:
+	  	send_str_and_wait(shell, node_name, "yes\n",2)
+	  ret,buf1 = send_str_wait_str(shell, node_name, sftp_pwd+"\n", shell_prompt)
+	
+def tti_bar(sec):
+	global bar_stop
+	sys.stdout.flush() 
+	i =0
+	p =0
+	sleep = 1
+	while (not bar_stop) and (p<BAR_LEN):
+		
+		if i*sleep <= sec:
+			p = int(BAR_LEN*(i*sleep)/sec)
+		ProgressBar("\r[{}] {:.0f}% {}", p)
+		logging.debug('tti refresh:'+datetime.datetime.now().ctime()+',p='+str(p)+', sec='+str(sec))
+		time.sleep(sleep)
+		sys.stdout.flush() 
+		i+=1
+		
+def unzip_cb(kws,tot_kws):
+	i = (BAR_LEN-10)*kws/tot_kws
+	if i < BAR_LEN -10:
+		ProgressBar("\r[{}] {:.0f}% {}", i, BAR_LEN-10, BAR_LEN-10)
+
+def decode_cb(kws,tot_kws):
+	i = (BAR_LEN)*kws/tot_kws
+	if i < BAR_LEN:
+		ProgressBar("\r[{}] {:.0f}% {}", i, BAR_LEN, BAR_LEN)
+		
+def tti_gen(s_node,d_node):
+	if not login_target(s_node, d_node):
+		global bar_stop
+		bar_stop = False
+	
+		#try:
+		sys.stdout.write('Generating TTI trace ('+str(tti_len)+'s)...\n')
+		t = threading.Thread(target=tti_bar, args=(tti_len,))
+		t.setDaemon(True)
+		t.start()
+		send_str_wait_str(s_node['chan'], d_node['name'],'rm -f ' + tti_path + '*',d_node['prompt'])
+		send_str_and_wait(s_node['chan'], d_node['name'], "/opt/tools/ttiTrace/collect.sh\n", 1)
+		time.sleep(tti_len)
+		bar_stop = True
+
+		iret, buf = send_str_wait_str(s_node['chan'],d_node['name'],'\x03',d_node['prompt'])
+		iret, buf = send_str_wait_str(s_node['chan'],d_node['name'],'\x03',d_node['prompt'])
+
+		#read two more lines
+		send_str_and_wait(s_node['chan'],d_node['name'],'\n',2)
+
+		#send_str_wait_str(s_node['chan'],d_node['name'],'',d_node['prompt'],None,None)
+		#send_str_wait_str(s_node['chan'],d_node['name'],'',d_node['prompt'],None,None)
+		
+		send_str_wait_str(s_node['chan'], d_node['name'], "cd " + tti_path + "\n", d_node['prompt'])
+		sys.stdout.write('Processing...\n') 
+		ret, buf = send_str_wait_str(s_node['chan'],d_node['name'],'ls *.gz -l',d_node['prompt'])
+		num = re.findall('\s5GTtiTrace\.bin\.\d+\.tar.gz',buf)
+		logging.info('tti tar.gz: '+ str(len(num)))
+		if len(num) ==0:
+			logging.error('No ttiTrace file generated!')
+			end_login_target(s_node, d_node, s_node['prompt'])
+			return 1
+						
+		#todo: bar
+		send_str_wait_str(s_node['chan'], d_node['name'], "ls *.tar.gz | xargs -n1 tar xzvf", d_node['prompt'],None,None,True,'5GTtiTrace.bin.',len(num),unzip_cb)
+		#lpdt
+#			iret, buf=send_str_wait_str(s_node['chan'], d_node['name'], 'for file in /var/ttiTrace/*.bin.*; do /opt/tools/ttiTrace/TtiTraceDecoder "$file" "$file" ;done', d_node['prompt'],None,None,True,'Ring Buffer Header',len(num))			
+		
+		send_str_wait_str(s_node['chan'], d_node['name'], "rm *.tar.gz", d_node['prompt'])	
+		iret, buf=	send_str_wait_str(s_node['chan'], d_node['name'], "ls -l", d_node['prompt'])	
+		num = re.findall('\s5GTtiTrace\.bin\.\d',buf)
+		logging.info('tti .bin: '+ str(len(num)))
+		if len(num) ==0:
+			logging.error('No ttiTrace file unzipped!')
+			logging.info(num)
+			bar_stop = True
+			end_login_target(s_node, d_node, s_node['prompt'])
+			return 1
+
+		print '\nDecoding...\n'			
+		iret, buf=send_str_wait_str(s_node['chan'], d_node['name'], 'for file in /var/ttiTrace/*.bin.*; do /opt/tools/ttiTrace/TtiTraceDecoder "$file" "$file" ;done', d_node['prompt'],None,None,True,'Ring Buffer Header',len(num),decode_cb)
+
+		iret, buf =	send_str_wait_str(s_node['chan'], d_node['name'], "ls -l *.csv", d_node['prompt'])	
+		files = re.findall('\s5GTtiTrace\.bin\.\d+\..l.csv',buf)
+		logging.debug('tti csv:' + str(len(files)))
+		if len(files) < 1:
+			if '-bash: fork' in buf:
+				print '\nError: '+buf
+			logging.error('No ttiTrace file decoded!')
+			end_login_target(s_node, d_node, s_node['prompt'])
+			return 2
+				
+		send_str_wait_str(s_node['chan'], d_node['name'], 'tar zcvf /tmp/'+d_node['name']+'_ttiTrace.tar.gz *.csv', d_node['prompt'])
+		send_str_wait_str(s_node['chan'], d_node['name'], 'rm *', d_node['prompt'])
+		
+		d_node['files']+=1
+		if d_node['files']:
+			if d_node.has_key('routr'):
+				scp_log(s_node['chan'], d_node['name'], d_node['prompt'], d_node['routr']['rip'], d_node['routr']['usr'], d_node['routr']['pwd'])
+				send_str_and_wait(s_node['chan'], d_node['name'], "exit\n", 2)
+				scp_log(s_node['chan'], d_node['name'], d_node['routr']['prompt'], d_node['routr']['om'], oam_usr, oam_pwd)		
+		end_login_target(s_node, d_node, s_node['prompt'],True)
+
+	#	except Exception as e:
+	#		print 'Exception:'
+	#		print(e)
+	#		logging.error('Exception got')
+	#		end_login_target(s_node, d_node, s_node['prompt'])
+	#		bar_stop =True
+		
+	else:
+		logging.error('Login '+ d_node['name'] + ' failed!')
+		return 1
+	return 0
+
+def bb2_misc_logs(node):
+	sh = '/opt/tools/checkCellSetup/checkCellSetup.sh>> /tmp/' + node['name'] +  '_cellsetup.log'
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	sh = 'cp /ffs/run/swconfig.txt '+'/tmp/'+node['name']+'_swconfig.txt'
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	sh = "for f in startup_*; do cp $f " + node['name'] + "_$f; done\n"
+	send_str_wait_str(node['chan'], node['name'], 'cd /tmp', node['prompt'])
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	node['files'] += 1
+
+def asik_misc_logs(node):
+	sh = 'cp /ffs/run/swconfig.txt '+'/tmp/'+node['name']+'_swconfig.txt'
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	sh = "for f in startup_*; do cp $f " + node['name'] + "_$f; done\n"
+	send_str_wait_str(node['chan'], node['name'], 'cd /tmp', node['prompt'])
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	node['files'] += 1
+
+def ru_misc_logs(node):
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	sh = "cp /ram/startup_DEFAULT.log.xz /tmp/" + node['name'] +"_startup_DEFAULT.log.xz"
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	sh = "cp /ram/startup_DEFAULT.log /tmp/" + node['name'] +"_startup_DEFAULT.log"
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	node['files'] += 1
+		
+
+def start_ses():
+		s = paramiko.SSHClient()
+		s.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+		s.connect(oam_ip,ssh_port,oam_usr,oam_pwd)
+		ch = s.invoke_shell()
+		esp = ['login denied']
+		rsp = {'?':'yes','assword:':oam_pwd}
+		ret,buf = send_str_wait_str(ch,'OAM','',oam_prompt,esp,rsp,False)
+		
+		if ret:
+			logging.fatal ("_OAM: cannot login OAM!")
+		return ret, s, ch
+
+def close_ses(node):
+	if node.has_key('routr'):
+		send_str_and_wait(node['chan'], node['name'], "exit\n", 2)
+	send_str_and_wait(node['chan'], node['name'], "exit\n", 2)
+	node['conn'].close()	
+	logging.info( "_" + node['name'] + " thread exiting")
+
+#visit d_node from s_node session. s==d if thread create up.
+#remember pair use with end_login_target() if not thread
+def login_target(s_node,d_node,skip_routr=False,p_node=None):
+	routr_ok = False
+	result = 0
+	if s_node == d_node and p_node:
+		n = p_node
+	else:
+		n = s_node	
+	esp = []  #'timed out','Permission denied','Too many Password failures',,'Connection refused'
+	if not skip_routr and d_node.has_key('routr'):
+		if not n['prompt'] == d_node['routr']['prompt']:
+			if not n['prompt'] == d_node['prompt']:
+				esp.append(n['prompt'])
+			else:
+				esp.append(n['prompt_kw'])
+		rsp = {'?':'yes','assword:':d_node['routr']['pwd']} #'denied, please try again':'\x03'
+		ssh = "ssh "+ d_node['routr']['usr'] + "@" + d_node['routr']['ip']
+		if d_node['routr'].has_key('opt'):
+			ssh += d_node['routr']['opt']
+		ret,buf = send_str_wait_str(s_node['chan'], s_node['name'], ssh, d_node['routr']['prompt'], esp, rsp)
+		if ret:
+			logging.error("_" + s_node['name'] + " Login " + d_node['routr']['name'] + " failed!")
+			return -1
+		routr_ok = True
+		
+	ssh = 'ssh '+ d_node['usr'] + '@'+ d_node['ip']
+	if d_node.has_key('opt'):
+		ssh += d_node['opt']
+	if routr_ok:
+		if not d_node['routr']['prompt'] == d_node['prompt']:
+			esp.append(d_node['routr']['prompt'])
+	elif not d_node['prompt'] == n['prompt']:
+		esp.append(n['prompt'])
+	rsp = {'?':'yes','assword:':d_node['pwd']} #,'denied, please try again':'\x03'
+	ret,buf = send_str_wait_str(s_node['chan'], s_node['name'], ssh, d_node['prompt'], esp, rsp)
+	logging.debug('login:'+str(ret) + ', s,d, p:'+ s_node['name'] +','+d_node['name'] + ', '+n['name'] +'  esp:' + ''.join(esp) )
+
+	if ret:
+		result = 2
+	if d_node.has_key('prompt_kw') and not d_node['prompt_kw'] in buf:
+		result = 3
+	if result:
+		logging.error("_" + s_node['name'] + " Login " + d_node['name'] + " failed!")
+		if routr_ok and d_node['routr']['prompt_kw'] in buf:
+			send_str_wait_str(s_node['chan'], s_node['name'], 'exit', s_node['prompt'])
+	return result
+
+def end_login_target(s_node,d_node,prompt,skip_routr=False):
+	if not skip_routr:
+		if d_node.has_key('routr'):
+			send_str_wait_str(s_node['chan'], s_node['name'], 'exit', d_node['routr']['prompt'])
+	send_str_wait_str(s_node['chan'], s_node['name'], 'exit\n', prompt)
+				
+def log_r(node, nodes):		
+
+	if node.has_key('pre'):
+		node['pre'](node)
+		node['bar_i'] = BAR_LEN / 5
+	
+	node['files'] += get_res_log(node['chan'], node['name'], node['prompt'])
+	node['bar_i'] = BAR_LEN / 4
+
+	node['files'] += get_jour_log(node['chan'], node['name'], node['prompt'])
+	node['bar_i'] = BAR_LEN /2
+	
+	if log_level == LEVEL_FULL:
+		node['files'] += get_aashell_logs(node['chan'], node['name'], node['prompt'])
+		node['bar_i'] = BAR_LEN *3 / 4
+		
+	if node['files']:
+		if node.has_key('routr'):
+			scp_log(node['chan'], node['name'], node['prompt'], node['routr']['rip'], node['routr']['usr'], node['routr']['pwd'])
+			node['bar_i'] = BAR_LEN *4/5
+			send_str_and_wait(node['chan'], node['name'], "exit\n", 2)
+			scp_log(node['chan'], node['name'], node['routr']['prompt'], node['routr']['om'], oam_usr, oam_pwd)
+			node['bar_i'] = BAR_LEN
+		else:
+			if(node['name'] != "oam-0.local"): #skip oam				
+				scp_log(node['chan'], node['name'], node['prompt'], node['om'], oam_usr, oam_pwd) 
+				node['bar_i'] = BAR_LEN
+	close_ses(node)
+	node['bar_i'] = BAR_LEN
+
+def all_nodes_fnames(nodes):
+		names = ""
+		for i in range(0, len(hosts)):
+			if nodes[i]:
+				names += nodes[i]['name'] + "_* "
+		return names
+		
+def router_fnames(node,nodes):		 #??
+	names = node['name'] + "_* "
+	for i in range(0, len(hosts)):
+		if nodes[i]:
+			if nodes[i].has_key('routr'):
+				if nodes[i]['routr']['ip'] == node['ip']:
+					names += nodes[i]['name'] + "*_ "
+	return names
+								
+def clean_up(node, all_files=0, nodes=None): 
+	send_str_wait_str(node['chan'], node['name'], "cd /tmp\n", node['prompt'])
+	names = node['name'] + "_*"
+	if not all_files:
+		if nodes is not None:
+			names = router_fnames(node,nodes)
+	else:
+		if nodes is not None:
+			names = all_nodes_fnames(nodes)
+	sh = ''
+	if '$ ' in node['prompt']:
+		sh += 'sudo '
+	sh += 'rm -f ' + names
+	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
+	
+def sftp_cb(bytes,tot_bytes):
+	i = (BAR_LEN+10)*bytes/tot_bytes
+	ProgressBar("\r[{}] {:.0f}% {}", i, BAR_LEN+10, BAR_LEN+10)
+	
+def log_download(node, nodes):
+	names = all_nodes_fnames(nodes)
+	fname = log_file_prefix + "_"+ oam_ip + "_" + time.strftime('%Y%m%d_%H%M%S',time.localtime(time.time())) #+ ".tar.gz"
+	##may rcv too early and leave ram] part soon for next routine if it's not included here:
+	send_str_wait_str(node['chan'], node['name'], "cd ~\n", node['prompt'])
+	send_str_wait_str(node['chan'], node['name'], "cd /tmp\n", "tmp]\r\r\n" + node['prompt'])
+	send_str_wait_str(node['chan'], node['name'], "mkdir "+ fname, node['prompt'])
+	send_str_wait_str(node['chan'], node['name'], "mv "+ names + fname, node['prompt'])
+	if not tti_on ==TTI_ONLY:		
+		send_str_wait_str(node['chan'], node['name'], "cd "+ fname, node['prompt'])
+		if not log_level == LEVEL_MIN :
+			send_str_wait_str(node['chan'], node['name'], "mkdir sw", node['prompt'])
+			send_str_wait_str(node['chan'], node['name'], "mv *swconfig.txt ./sw/", node['prompt'])
+			send_str_wait_str(node['chan'], node['name'], "mkdir usage", node['prompt'])
+			send_str_wait_str(node['chan'], node['name'], "mv *_stat.log ./usage/", node['prompt'])
+			send_str_wait_str(node['chan'], node['name'], "mkdir startup", node['prompt'])
+			send_str_wait_str(node['chan'], node['name'], "mv *startup* ./startup/", node['prompt'])
+			send_str_wait_str(node['chan'], node['name'], "mv *cellsetup.log ./startup/", node['prompt'])
+			#todo:
+			#send_str_wait_str(node['chan'], node['name'], "mv "+, node['prompt'])
+		send_str_wait_str(node['chan'], node['name'], "cd ..", node['prompt'])
+		
+	send_str_wait_str(node['chan'], node['name'], "zip -r "+ fname + ".zip " + fname, node['prompt'])	
+
+	ret,buf = send_str_wait_str(node['chan'], node['name'], "ls -l "+ fname + ".zip |awk '{print $5}'\n", node['prompt'])	
+	sz = re.findall(r"\r\n(\d+)\r\n", buf, re.S)
+	if not len(sz) or ( len(sz) and (int(sz[0]) < MIN_LOG_SZ) ):
+		send_str_wait_str(node['chan'], node['name'], "rm -rf " + fname + "*\n", node['prompt'])
+		logging.error("Failure in tar, no file downloaded!")		
+		return 1
+	#send_str_wait_str(node['chan'], node['name'], "rm -f " + fname +"*", node['prompt'])
+	
+	print '\nStart log downloading...\n'
+	sftp = node['conn'].open_sftp()
+	sftp.get('/tmp/'+fname+'.zip', fname+'.zip',sftp_cb)
+	if  file_exist(fname+'.zip'):
+		send_str_wait_str(node['chan'], node['name'], "rm -rf " + fname + "\n", node['prompt'])
+		if not os.path.abspath('.')=='/tmp':
+			send_str_wait_str(node['chan'], node['name'], "rm -f " + fname + ".zip\n", node['prompt'])
+		logging.info ( fname + " is downloaded")
+		if os.name == 'nt':
+			char = "\\"
+		else:
+			char = "/"
+		print '\nLog file: \n'+os.path.abspath('.')+char+fname+'.zip'
+	else:
+		logging.error("failed in sftp download!")
+		sftp.close()
+		return 2
+	sftp.close()
+	return 0
+
+def file_exist(fname):
+	return  os.path.exists(fname) and os.path.isfile(fname) and os.access(fname, os.R_OK)
+
+def upload_file(node,d_node,fname,d_folder,in_d_node):
+	sftp = node['conn'].open_sftp()
+	if d_node == node:
+		sftp.put(fname, os.path.join(d_folder, fname))
+		sftp.close()
+		return
+	res = sftp.put(fname, os.path.join("/tmp/", fname))
+	if in_d_node:
+		#scp_from(shell, node_name, shell_prompt, fname, d_folder, sftp_ip, sftp_usr, sftp_pwd):
+		scp_from(node['chan'], node['name'], d_node['prompt'], "/tmp/"+fname, d_folder, d_node['om'], oam_usr, oam_pwd)
+	else:
+		scp_log2(node['chan'], node['name'], node['prompt'], "/tmp/"+fname, d_folder, d_node['ip'], d_node['usr'], d_node['pwd'])
+	sftp.close()
+
+def get_ip(node, *ifs):
+	dic=[]
+	if node is None:
+		output = os.popen('ip a')
+		buf = output.read()
+	else:
+		ret,buf = send_str_wait_str(node['chan'], node['name'], "ip a\n", node['prompt'])
+	for i,ifc in enumerate(ifs):
+		exp = '\s'+ ifc + ':\s[\s\S]+?inet\s((?:[0-9]{1,3}\.){3}[0-9]{1,3})'
+		ip = re.findall(exp,buf)
+		if ip:
+			dic.append({'ifc':ifc,'ip':''.join(ip)})
+	if dic is None:
+		return None
+	return dic
+	
+def get_if(ch,name,prompt,ifc):
+	if ch is None:
+		output = os.popen('ip a sh dev ' + ifc)
+		buf = output.read()
+	else:
+		ret,buf = send_str_wait_str(ch, name, 'ip a sh dev '+ifc+'\n', prompt)
+	ip = re.findall('inet\s((?:[0-9]{1,3}\.){3}[0-9]{1,3})',buf)
+	if ip:
+		if len(ip) > 1:
+			return ''.join(ip[0])
+		else:
+			return ''.join(ip)
+	return ''
+
+def get_cur_ses(s_node):
+	r,buf = send_str_wait_str(s_node['chan'],s_node['name'],'who',s_node['prompt'])
+	s = re.findall('(.+\(((?:[0-9]{1,3}\.){3}[0-9]{1,3})\))',buf)
+	return len(s)
+
+def pending_bar(i):
+	global bar_stop
+	sys.stdout.flush() 								
+	while not bar_stop:
+		if (i%4) == 0: 
+		    sys.stdout.write('\b/')
+		elif (i%4) == 1: 
+		    sys.stdout.write('\b-')
+		elif (i%4) == 2: 
+		    sys.stdout.write('\b\\')
+		elif (i%4) == 3: 
+		    sys.stdout.write('\b|')		
+		sys.stdout.flush()
+		time.sleep(0.2)
+		i+=1	
+	print '\b\b\b'
+	
+def get_cu_hosts(s_node, du_ip=None):
+	global bar_stop
+	if du_ip:
+		buf = 'cpcl-0.local,cpif-0.local,cpue-0.local,upue-0.local,cpnb-0.local,db-0.local'
+		addr = [du_ip]
+	else:
+		bar_stop = False
+		try:
+			#send_str_wait_str(s_node['chan'],s_node['name'],"echo '  wait 2+ minutes for data retrieving......'",s_node['prompt'])
+			sys.stdout.write('Retrieving data, takes 1 minute or more...    ')
+			t = threading.Thread(target=pending_bar, args=(2,))
+			t.setDaemon(True)
+			t.start()
+			ret,buf = send_str_wait_str(s_node['chan'],s_node['name'],'arp -a\n',s_node['prompt'])
+			ip = re.findall('\(((?:[0-9]{1,3}\.){3}[0-9]{1,3})\)\sat\s(.+)\s\[.+\]\s{2}on\sfronthaul',buf)
+			addr=[]
+			mac=[]
+			for val in ip:
+				if val[1] not in mac:
+					mac.append(val[1])
+					if cmp(val[0],owner['internal']):
+						addr.append(val[0])		
+		except Exception as e:
+			bar_stop = True
+			print(e)
+		bar_stop = True
+	
+	
+	if 'cpcl-0.local' in buf:
+		h={}
+		h['name'] = 'cpcl-0'
+		h['ip'] = 'cpcl-0.local'
+		h['usr'] = oam_usr
+		h['pwd'] = oam_pwd
+		h['om'] = 'oam-0.local'
+		h['prompt'] = '$ '
+		h['prompt_kw'] = h['name']
+		hosts.append(h)
+	if 'cpif-0.local' in buf:
+		h={}		
+		h['name'] = 'cpif-0'
+		h['ip'] = 'cpif-0.local'
+		h['usr'] = oam_usr
+		h['pwd'] = oam_pwd
+		h['om'] = 'oam-0.local'
+		h['prompt'] = '$ '
+		h['prompt_kw'] = h['name']
+		hosts.append(h)		
+	if 'cpue-0.local' in buf:
+		h={}		
+		h['name'] = 'cpue-0'
+		h['ip'] = 'cpue-0.local'
+		h['usr'] = oam_usr
+		h['pwd'] = oam_pwd
+		h['om'] = 'oam-0.local'
+		h['prompt'] = '$ '
+		h['prompt_kw'] = h['name']
+		hosts.append(h)		
+	#consider multi vm later...
+	if 'upue-0.local' in buf:
+		h={}		
+		h['name'] = 'upue-0'
+		h['ip'] = 'upue-0.local'
+		h['usr'] = oam_usr
+		h['pwd'] = oam_pwd
+		h['om'] = 'oam-0.local'
+		h['prompt'] = '$ '
+		h['prompt_kw'] = h['name']
+		hosts.append(h)		
+	if 'cpnb-0.local' in buf:
+		h={}		
+		h['name'] = 'cpnb-0'
+		h['ip'] = 'cpnb-0.local'
+		h['usr'] = oam_usr
+		h['pwd'] = oam_pwd
+		h['om'] = 'oam-0.local'
+		h['prompt'] = '$ '
+		h['prompt_kw'] = h['name']
+		hosts.append(h)	
+	if 'db-0.local' in buf:
+		h={}		
+		h['name'] = 'db-0'
+		h['ip'] = 'db-0.local'
+		h['usr'] = oam_usr
+		h['pwd'] = oam_pwd
+		h['om'] = owner['internal']
+		h['prompt'] = '$ '
+		h['prompt_kw'] = h['name']
+		hosts.append(h)		
+		
+	logging.debug(addr)
+	i=0		
+	for k in addr:
+			h={}
+			h['pre_name'] = ''
+			if len(addr) > 1:
+				h['pre_name'] =  'rap-' + str(i) + '-'
+			h['name'] = h['pre_name'] + 'fctla'
+			h['ip'] = ''.join(k)
+			h['opt'] = ' -o BatchMode=no -o PasswordAuthentication=yes -o PreferredAuthentications=password'
+			h['usr'] = "toor4nsn"
+			h['pwd'] = "oZPS0POrRieRtu"
+			h['om'] = owner['internal']
+			h['prompt'] = " >"
+			h['prompt_kw'] = '@fct'
+			if not login_target(s_node, h):
+				h['rip'] = get_if(s_node['chan'],s_node['name'],h['prompt'],'rlan0')
+				if h['rip']:
+					hosts.append(h)
+					i+=1
+				end_login_target(s_node,h,s_node['prompt'])
+			else:
+				#h['rip'] = 'fct'
+				continue
+
+def get_du_hosts(s_node,d_node):		
+	if login_target(s_node, d_node):
+		return
+	ret,buf = send_str_wait_str(s_node['chan'],s_node['name'],'arp -a\n',d_node['prompt'])
+	if 'fctlb' in buf:
+		h={}		
+		h['name'] = d_node['pre_name']+'fctlb'
+		h['ip'] = 'fctlb'
+		h['usr'] = 'toor4nsn'
+		h['pwd'] = 'oZPS0POrRieRtu'
+		h['routr'] = d_node 
+		h['prompt'] = ' >'
+		h['prompt_kw'] = 'b:'
+		hosts.append(h)	
+	ip = re.findall('(fsp-\d-\d.)\s\(\d',buf) 
+	if ip:
+		ip = {}.fromkeys(ip).keys()  #remove duplication
+		for i,val in enumerate(ip):
+			h={}		
+			h['name'] = d_node['pre_name'] + val
+			h['ip'] = val
+			h['usr'] = 'toor4nsn'
+			h['pwd'] = 'oZPS0POrRieRtu'
+			h['routr'] = d_node 
+			if val.endswith('c'):  #fsp-x-xc
+				h['prompt'] = '# '
+			else:
+				h['prompt'] = ' >'
+			h['prompt_kw'] = 'aspa-'
+			hosts.append(h)
+			#ru
+			if val.endswith('c'):
+				if not login_target(s_node, h, True):
+					ret2, buf2 = send_str_wait_str(s_node['chan'],s_node['name'],'ip neigh',h['prompt'])
+					ip2 = re.findall('((?:[0-9]{1,3}\.){3}[0-9]{1,3})\sdev\seth1',buf2)
+					for k in ip2:
+						h={}
+						h['name'] = d_node['pre_name'] + 'ru'
+						h['ip'] = ''.join(k)
+						h['usr'] = "root"
+						h['pwd'] = "umniedziala"
+						h['routr'] = d_node 
+						h['prompt'] = "$ "	
+						h['prompt_kw'] = '(hw-'	
+						hosts.append(h)
+						break
+					end_login_target(s_node,h,d_node['prompt'],True)
+	end_login_target(s_node, d_node, s_node['prompt'])
+
+def add_rap_rout(s_node,d_node):
+	if not login_target(s_node, d_node):
+		send_str_wait_str(s_node['chan'],s_node['name'],'ip r ad '+owner['internal']+' via '+owner['fronthaul']+' dev fp0\n',d_node['prompt'])
+		end_login_target(s_node, d_node, s_node['prompt'])
+
+def run_log_r():
+	global hosts
+	ses = oam_max_ses - get_cur_ses(owner) -1
+	if ses <= 0:
+		logging.fatal('Too many open sessions, no possible for logs!')
+		ses = 0
+		return 0
+	logging.info("max ses: "+str(ses) + 'for:'+str(len(hosts)))
+		
+	n = len(hosts)
+	i = 0
+	j = 0
+	while n and ses>0:
+		logging.debug('n,i,j:'+str(n)+','+str(i)+','+str(j))
+		if n > ses:
+			j += ses
+			bat_logs(i,j-1)
+			i = j
+			n -= ses
+			continue
+		else:
+			bat_logs(i,j+n-1)
+			n = 0
+				
+	logging.info("log_r totally done. ")
+	return len(hosts)
+						
+def handle_argvs():
+	global oam_ip,oam_usr,oam_pwd,log_level,tti_on, tti_len,tti_max,local_level,rap
+	host_ok = False
+	i=0
+	while i < len(sys.argv):
+		if i==0: 
+			i+=1
+			continue
+		if sys.argv[i].startswith('-h') or sys.argv[i].startswith('--h'):
+			print info
+			sys.exit()
+		elif sys.argv[i].startswith('-s') or sys.argv[i].startswith('--s'): #small
+			log_level = LEVEL_MIN
+		elif sys.argv[i].startswith('-f') or sys.argv[i].startswith('--f'): #full
+			log_level = LEVEL_FULL
+		elif sys.argv[i].startswith('-d') or sys.argv[i].startswith('--de'): #debug
+			local_level = logging.DEBUG			
+		elif sys.argv[i].startswith('-r') or sys.argv[i].startswith('--r'): #rap	
+			if i+1 < len(sys.argv):
+				ip = re.findall('((?:[0-9]{1,3}\.){3}[0-9]{1,3})',sys.argv[i+1])
+				if ip:
+					rap = ip[0]
+				else:
+					print "RAP IP address is invalid!\n"
+					print info
+					sys.exit()
+				i+=2
+				continue
+		elif sys.argv[i].startswith('-t') or sys.argv[i].startswith('--t'): #tti
+			tti_on = TTI_INCLUDE
+			if i+1 < len(sys.argv) and sys.argv[i+1].isdigit():
+				tti_len = int(sys.argv[i+1]	)
+				if tti_len > tti_max:
+					print 'Trace time for tti should not exceed ' + str(tti_max) + ' seconds!\n'
+					sys.exit()
+				elif tti_len <=0:
+					print "0 second's trace time, will be quit.\n"
+					sys.exit()					
+				tti_on = TTI_ONLY
+				i +=2
+				continue
+		elif host_ok:
+			oam_pwd=sys.argv[i]			
+		elif '@' in sys.argv[i]:
+			hname = sys.argv[i].split('@')
+			if hname[0] is not '':
+				oam_usr = hname[0]
+				host_ok = True
+			if hname[1] is not '':
+				oam_ip = hname[1]
+				host_ok = True
+		else:
+			oam_ip = sys.argv[i]
+			host_ok = True
+		i+=1
+		
+	#print 'omu:'+oam_ip+' pwd:'+oam_pwd+' level:'+str(log_level) +' tti:'+ str(tti_on)+','+str(tti_len)
+	#sys.exit()  
+	return host_ok
+	
+def bat_logs(i,j):
+	global hosts,t_runtime
+	logging.debug('bat log i,j:' + str(i) +',' +str(j))
+	if j<0 or i > j:
+		logging.error('bat log quit in i,j:' + str(i) +',' +str(j))
+		return 1
+	threads = []
+	while i<=j:
+		if hosts[i]:
+			ret, hosts[i]['conn'], hosts[i]['chan'] = start_ses()
+			if ret:
+				logging.error(hosts[i]['name'] + ' starting failed:' + str(ret) + ', skipped!')
+				i+=1
+				continue
+			if login_target(hosts[i], hosts[i],False,owner):
+				logging.error("_" + hosts[i]['name'] + " login failed, skipped!")
+				i+=1
+				continue
+			
+			if hosts[i].has_key('skip'):
+				if hosts[i]['skip']:
+					logging.info("_" + hosts[i]['name'] + " skipped!")
+					i+=1
+					continue
+									
+			clean_up(hosts[i],0,hosts)
+			hosts[i]['files'] = 0
+					
+			hosts[i]['th'] = threading.Thread(target=log_r, args=(hosts[i], hosts))
+			threads.append(hosts[i]['th'])
+			logging.info( "_" + hosts[i]['name'] + " thread ready: " + hosts[i]['th'].getName() )
+			logging.debug(hosts[i])			
+		i+=1
+			
+	for t in threads:
+		t.setDaemon(True)
+		t.start()
+	
+	#for t in threads:
+	#	t.join(MAX_RUNTIME)
+	#for t in threads:
+	#	if t.isAlive(): 
+	#		logging.error("___ thread failed! " + t.getName() )
+	#		return 2
+	
+	#lpdt
+	while True:
+		time.sleep(1)
+		t_runtime += 1
+		alive = False
+		for t in threads:
+			alive = alive or t.isAlive()
+		if not alive:
+			break
+		show_t_bars()
+		if t_runtime > MAX_RUNTIME:
+			logging.fatal("___ thread timedout! " + t.getName() )
+			break
+				
+	logging.info("round done!")
+	return 0
+
+def ProgressBar(Bar, Progress, Total=50, BarLength=50, ProgressIcon="#", BarIcon="-"):
+    try:
+        # You can't have a progress bar with zero or negative length.
+        if BarLength <1:
+            BarLength = 20
+        # Use status variable for going to the next line after progress completion.
+        Status = ""
+        # Calcuting progress between 0 and 1 for percentage.
+        Progress = float(Progress) / float(Total)
+        # Doing this conditions at final progressing.
+        if Progress >= 1.:
+            Progress = 1
+            Status = "\r\n"    # Going to the next line
+        # Calculating how many places should be filled
+        Block = int(round(BarLength * Progress))
+        # Show this
+        Bar = Bar.format(ProgressIcon * Block + BarIcon * (BarLength - Block), round(Progress * 100, 0), Status)
+        sys.stdout.write(Bar)
+        
+    except Exception as e:
+        return e
+
+def show_t_bars():
+	if os.name == 'nt':
+		cl = 'cls'
+	else:
+		cl = 'clear'		
+	os.system(cl)
+
+	for i in range(len(hosts)):
+		ProgressBar(hosts[i]['bar'], hosts[i]['bar_i'])
+	sys.stdout.flush() 
+
+def post_pre_cfg(omu_int_ip):
+	global hosts
+	for i in range(0,len(hosts)):
+		if hosts[i]['name'] == 'fctla':
+			hosts[i]['om'] = omu_int_ip
+				
+			
+if __name__=="__main__":
+	start = datetime.datetime.now()
+	
+	if not handle_argvs():  #当不带参数的时候，才走进这个if not，也就是这个文件可以直接放在could oam里面执行，这样if not里面会直接执行ip a sh dev oam这个指令，去获得oam的IP
+		ip = get_if(None,None,None,'oam')
+		if ip:
+			oam_ip = ip
+	#handle_argvs 里的sys.argv 是用来解读带入参数，类似于bash里面执行指令里面的 bash xx.sh $1 $2...
+	#同理，sys.argvs[0] 指的是python程序本身，sys.argvs[1] 就指的python后面跟的第一个参数，sys.argvs[2] 指的是第二个参数，依次类推
+	
+	log_setup(local_level)
+	
+	if not oam_ip:
+		print '***No gNB host name or IP address is given, aborted!\n\n'
+		print info		
+		sys.exit()
+
+	sys.stdout.write('GNB_Logs, V'+str(version) + '\n')			
+	logging.info ("Collect GNB logs v" + str(version) +" from "+oam_ip +", Level=%d," % log_level + "Start: %s" % start.ctime())
+	logging.debug(sys.argv)
+	
+	owner['name'] = "OAM-0"
+	owner['prompt'] = "$ "
+	owner['prompt_kw'] = 'oam-0'
+	ret, owner['conn'], owner['chan'] = start_ses()
+	
+	owner['oam'] = oam_ip
+	owner['internal'] = get_if(owner['chan'],owner['name'],owner['prompt'],'internal')
+	owner['fronthaul'] = get_if(owner['chan'],owner['name'],owner['prompt'],'fronthaul')
+
+	logging.debug(owner)
+	
+	get_cu_hosts(owner,rap)		
+	
+	clean_up(owner,1,hosts)
+	
+	for i in range(0, len(hosts)):
+		if hosts[i]:
+			if 'fctla' in hosts[i]['name']:				
+				get_du_hosts(owner,hosts[i])
+				add_rap_rout(owner,hosts[i])
+	
+	#if len(hosts) < 
+	for i in range(len(hosts)):
+		hosts[i]['files'] = 0
+		hosts[i]['bar'] = '{:<6}'.format(hosts[i]['name']) + ": [{}] {:.0f}% {}\n"
+		hosts[i]['bar_i'] = 0
+		if 'fctlb' in hosts[i]['name']:
+			hosts[i]['pre'] = bb2_misc_logs 
+			if not tti_on == TTI_NONE:
+				ret = tti_gen(owner,hosts[i])
+		if 'fctla' in hosts[i]['name']:
+			hosts[i]['pre'] = asik_misc_logs	
+			
+	if not tti_on == TTI_ONLY:
+		ret = run_log_r()
+
+	log_download(owner, hosts)
+	#clean_up(node, all_files, nodes)
+	close_ses(owner)
+	
+	end = datetime.datetime.now()
+	logging.info("End : %s" % end.ctime())
+	logging.info("Duration seconds: %s",(end - start).seconds)	
