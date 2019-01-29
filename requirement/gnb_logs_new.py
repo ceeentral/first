@@ -605,7 +605,11 @@ def get_ip(node, *ifs):
 def get_if(ch,name,prompt,ifc):
 	if ch is None:
 		output = os.popen('ip a sh dev ' + ifc)
+		#ip a指令，再用dev去指定具体端口
+		#ps，popen是一个已经被嫌弃的函数，大都被替换成subprocess,详情参考如下链接(后续自己试着换一下)
+		#https://docs.python.org/2/library/subprocess.html#replacing-os-popen-os-popen2-os-popen3
 		buf = output.read()
+		#os.read() 配合os.open or os.popen 来读出刚刚获得的ip地址，
 	else:
 		ret,buf = send_str_wait_str(ch, name, 'ip a sh dev '+ifc+'\n', prompt)
 	ip = re.findall('inet\s((?:[0-9]{1,3}\.){3}[0-9]{1,3})',buf)
@@ -835,6 +839,8 @@ def run_log_r():
 	return len(hosts)
 						
 def handle_argvs():
+	#handle_argvs 里的sys.argv 是用来解读带入参数，类似于bash里面执行指令里面的 bash xx.sh $1 $2...
+	#同理，sys.argvs[0] 指的是python程序本身，sys.argvs[1] 就指的python后面跟的第一个参数，sys.argvs[2] 指的是第二个参数，依次类推
 	global oam_ip,oam_usr,oam_pwd,log_level,tti_on, tti_len,tti_max,local_level,rap
 	host_ok = False
 	i=0
@@ -844,9 +850,11 @@ def handle_argvs():
 			continue
 		if sys.argv[i].startswith('-h') or sys.argv[i].startswith('--h'):
 			print info
+		#如果第一个参数是-h or --h就打印注释，并切退出程序
 			sys.exit()
 		elif sys.argv[i].startswith('-s') or sys.argv[i].startswith('--s'): #small
 			log_level = LEVEL_MIN
+		#如果是-s的话，就设置log_level
 		elif sys.argv[i].startswith('-f') or sys.argv[i].startswith('--f'): #full
 			log_level = LEVEL_FULL
 		elif sys.argv[i].startswith('-d') or sys.argv[i].startswith('--de'): #debug
@@ -863,6 +871,7 @@ def handle_argvs():
 				i+=2
 				continue
 		elif sys.argv[i].startswith('-t') or sys.argv[i].startswith('--t'): #tti
+		#暂时不看tti怎么弄的0129
 			tti_on = TTI_INCLUDE
 			if i+1 < len(sys.argv) and sys.argv[i+1].isdigit():
 				tti_len = int(sys.argv[i+1]	)
@@ -999,20 +1008,20 @@ def post_pre_cfg(omu_int_ip):
 if __name__=="__main__":
 	start = datetime.datetime.now()
 	
-	if not handle_argvs():  #当不带参数的时候，才走进这个if not，也就是这个文件可以直接放在could oam里面执行，这样if not里面会直接执行ip a sh dev oam这个指令，去获得oam的IP
+	if not handle_argvs():
+	#这里的if not是为了，当输入不带IOAMIP地址时，直接使用ip a去读取oam的ip(此场景用于把此脚本放在OAM VM上执行的情况)
 		ip = get_if(None,None,None,'oam')
 		if ip:
 			oam_ip = ip
-	#handle_argvs 里的sys.argv 是用来解读带入参数，类似于bash里面执行指令里面的 bash xx.sh $1 $2...
-	#同理，sys.argvs[0] 指的是python程序本身，sys.argvs[1] 就指的python后面跟的第一个参数，sys.argvs[2] 指的是第二个参数，依次类推
-	
+
+	#如果带参数了，或者指定了oam_ip应该是不走进这个if not里面的
 	log_setup(local_level)
-	
+	#记录debug log
 	if not oam_ip:
 		print '***No gNB host name or IP address is given, aborted!\n\n'
 		print info		
 		sys.exit()
-
+	#判断oam ip是否正常
 	sys.stdout.write('GNB_Logs, V'+str(version) + '\n')			
 	logging.info ("Collect GNB logs v" + str(version) +" from "+oam_ip +", Level=%d," % log_level + "Start: %s" % start.ctime())
 	logging.debug(sys.argv)
