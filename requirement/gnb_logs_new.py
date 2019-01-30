@@ -89,6 +89,7 @@ tti_max = 60
 tti_path = "/var/ttiTrace/"
 
 owner = {}
+#引入字典
 hosts = []
 
 MAX_RUNTIME = 300
@@ -133,6 +134,7 @@ def send_str_and_wait(shell, log_header, command, wait_time):
 def send_str_wait_str(shell, log_header, command, wait_str, escapes=None, response=None, enter=True, rcv_key=None,tot_key=None,callback=None):
 	r = 0
 	i = 0
+	#enter是用于检测指令是否敲回车了
 	if enter:
 		if not str(command).endswith('\n'):
 			command += '\n'
@@ -140,9 +142,15 @@ def send_str_wait_str(shell, log_header, command, wait_str, escapes=None, respon
 	logging.debug ("_"+log_header + " [s:"+command+"]"+wait_str)
 	rcv_buf = ''
 	#while not wait_str in rcv_buf:
+	#当没有以$结尾时，也就是说，当ssh出现验证问题时 or执行指令出现问题时(obsolete)
+	#因为每次进这个函数，都先让rcv_buf = ''，也就是把buffer的东西清空，这样每次调用此函数，一定会走进下面的while not里面
 	while not rcv_buf.endswith(wait_str):
 		if shell.recv_ready():
+			#recv_ready()是paramiko里面的东西，因为shell 是上一个函数start_ses里面带的paramiko.SSHClient.invoke_shell
+			#但是recv_rady是paramiko.channel里面的东西，难怪那个带入的参数缩写是ch
+			#channel 的buffer里只要有东西，这个就会是true
 			rcv_buf += shell.recv(9000)
+			#这个是shell.recv是表示去从channel的buffer里面去读，最多可以收9000
 			logging.debug ("_"+log_header + " [r:"+rcv_buf+"]")
 			if rcv_key:
 				n = rcv_buf.count(rcv_key)
@@ -150,6 +158,8 @@ def send_str_wait_str(shell, log_header, command, wait_str, escapes=None, respon
 					if callback:
 						callback(n,tot_key)
 			if response:
+			#这里response为真，但是现在还不明白为啥把enter设为false，这里就进不去最里层了（obsolete)
+            #这个if enter只是为了判断有没有敲回车，shell.send(response[key])是跟他平行的，别看错了，
 				for key in response:
 					if key in rcv_buf:
 						if enter:
@@ -160,6 +170,7 @@ def send_str_wait_str(shell, log_header, command, wait_str, escapes=None, respon
 						rcv_buf = ''
 						break
 			if escapes:
+			#这里只是打印下错误的log
 				for elem in escapes:
 					if elem in rcv_buf:
 						logging.error("_" + log_header + " rcv fail:" + elem + " !")
@@ -386,7 +397,7 @@ def start_ses():
 		esp = ['login denied']
 		rsp = {'?':'yes','assword:':oam_pwd}
 		ret,buf = send_str_wait_str(ch,'OAM','',oam_prompt,esp,rsp,False)
-		
+	    #此处引入交互式的字符发送和等待，这个send_str_wait_str以后可以很大程度上在别的脚本里复用！！take care
 		if ret:
 			logging.fatal ("_OAM: cannot login OAM!")
 		return ret, s, ch
@@ -409,6 +420,7 @@ def login_target(s_node,d_node,skip_routr=False,p_node=None):
 		n = s_node	
 	esp = []  #'timed out','Permission denied','Too many Password failures',,'Connection refused'
 	if not skip_routr and d_node.has_key('routr'):
+	#routr是什么东西？？哪儿来的？？？0129
 		if not n['prompt'] == d_node['routr']['prompt']:
 			if not n['prompt'] == d_node['prompt']:
 				esp.append(n['prompt'])
@@ -609,10 +621,18 @@ def get_if(ch,name,prompt,ifc):
 		#ps，popen是一个已经被嫌弃的函数，大都被替换成subprocess,详情参考如下链接(后续自己试着换一下)
 		#https://docs.python.org/2/library/subprocess.html#replacing-os-popen-os-popen2-os-popen3
 		buf = output.read()
-		#os.read() 配合os.open or os.popen 来读出刚刚获得的ip地址，
+		#os.read() 配合os.open or os.popen 来读出刚刚获得的interface的详细信息，然后在下面的ip处用正则表达式去提取出ip
 	else:
 		ret,buf = send_str_wait_str(ch, name, 'ip a sh dev '+ifc+'\n', prompt)
 	ip = re.findall('inet\s((?:[0-9]{1,3}\.){3}[0-9]{1,3})',buf)
+	#正则表达式提取出ip
+	#匹配到inet这排，然后\s表示匹配任意空白字符（包括空白，制表符，换页等）
+	#第一个括号里面, (?:pattern)表示匹配pattern，但不获取结果。
+	#[0-9]表示匹配0-9中任意一个数
+	#{1-3}表示匹配1-3次
+	#\.  本来.是要匹配除了换行符的任何字符，加上\之后，应该是让他只匹配.本身
+	#括号外面的{3}是要确定匹配三次（因为正常的ip都是4端，前三段都包括xxx. 而第四段只有xxx 
+	#所以第4段单独列出来匹配，所以完成了整个ip的匹配
 	if ip:
 		if len(ip) > 1:
 			return ''.join(ip[0])
@@ -648,6 +668,7 @@ def get_cu_hosts(s_node, du_ip=None):
 		buf = 'cpcl-0.local,cpif-0.local,cpue-0.local,upue-0.local,cpnb-0.local,db-0.local'
 		addr = [du_ip]
 	else:
+	#暂时不看else，反正填了rap IP的话，不走这里
 		bar_stop = False
 		try:
 			#send_str_wait_str(s_node['chan'],s_node['name'],"echo '  wait 2+ minutes for data retrieving......'",s_node['prompt'])
@@ -1017,23 +1038,27 @@ if __name__=="__main__":
 	#如果带参数了，或者指定了oam_ip应该是不走进这个if not里面的
 	log_setup(local_level)
 	#记录debug log
+	#判断oam ip是否正常,如果在参数不带oam IP，且不在文件中加OAM IP，那么oam=''，那么就会走到这个if not 里面来
 	if not oam_ip:
 		print '***No gNB host name or IP address is given, aborted!\n\n'
 		print info		
 		sys.exit()
-	#判断oam ip是否正常
+	#打印文件执行记录log
 	sys.stdout.write('GNB_Logs, V'+str(version) + '\n')			
 	logging.info ("Collect GNB logs v" + str(version) +" from "+oam_ip +", Level=%d," % log_level + "Start: %s" % start.ctime())
 	logging.debug(sys.argv)
-	
+	#可以用ctrl + : 来查关键字，可以查到此处的owner是个字典
 	owner['name'] = "OAM-0"
 	owner['prompt'] = "$ "
 	owner['prompt_kw'] = 'oam-0'
 	ret, owner['conn'], owner['chan'] = start_ses()
-	
+	#start_ses用于引入paramiko.sshclient 用于ssh到oam 的环境上
 	owner['oam'] = oam_ip
+	#获取oam的ip
 	owner['internal'] = get_if(owner['chan'],owner['name'],owner['prompt'],'internal')
+	#获取internal的IP
 	owner['fronthaul'] = get_if(owner['chan'],owner['name'],owner['prompt'],'fronthaul')
+	#获取fronthaul的IP
 
 	logging.debug(owner)
 	
@@ -1069,3 +1094,6 @@ if __name__=="__main__":
 	end = datetime.datetime.now()
 	logging.info("End : %s" % end.ctime())
 	logging.info("Duration seconds: %s",(end - start).seconds)	
+
+#疑问1：他为啥要获得internal的IP？？拿来干啥
+
