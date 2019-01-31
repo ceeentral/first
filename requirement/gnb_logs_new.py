@@ -411,6 +411,7 @@ def close_ses(node):
 
 #visit d_node from s_node session. s==d if thread create up.
 #remember pair use with end_login_target() if not thread
+#也就是说 从s_node ssh 到d_node. 如果多线程的话，s==d
 def login_target(s_node,d_node,skip_routr=False,p_node=None):
 	routr_ok = False
 	result = 0
@@ -1096,4 +1097,6 @@ if __name__=="__main__":
 	logging.info("Duration seconds: %s",(end - start).seconds)	
 
 #疑问1：他为啥要获得internal的IP？？拿来干啥
+#A: 好像是在这里get_cu_hosts里用到了h['om'] = owner['internal']，但是为啥要获得这个东西，还是不明白
+
 
