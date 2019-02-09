@@ -368,6 +368,7 @@ def bb2_misc_logs(node):
 	sh = 'cp /ffs/run/swconfig.txt '+'/tmp/'+node['name']+'_swconfig.txt'
 	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
 	sh = "for f in startup_*; do cp $f " + node['name'] + "_$f; done\n"
+	#这些shell指令最好在环境上敲一下，是什么返回
 	send_str_wait_str(node['chan'], node['name'], 'cd /tmp', node['prompt'])
 	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
 	node['files'] += 1
@@ -401,6 +402,7 @@ def start_ses():
 		if ret:
 			logging.fatal ("_OAM: cannot login OAM!")
 		return ret, s, ch
+		#返回一个channel用于shell使用，返回一个s用于SSH使用，返回ret是result，看看登陆是否成功，成功就为0
 
 def close_ses(node):
 	if node.has_key('routr'):
@@ -419,9 +421,10 @@ def login_target(s_node,d_node,skip_routr=False,p_node=None):
 		n = p_node
 	else:
 		n = s_node	
+		#n=oam
 	esp = []  #'timed out','Permission denied','Too many Password failures',,'Connection refused'
 	if not skip_routr and d_node.has_key('routr'):
-	#routr是什么东西？？哪儿来的？？？0129
+	#这里的d_node是刚刚里面的DU，里面没有定义routr，所以这里走不进去
 		if not n['prompt'] == d_node['routr']['prompt']:
 			if not n['prompt'] == d_node['prompt']:
 				esp.append(n['prompt'])
@@ -438,30 +441,44 @@ def login_target(s_node,d_node,skip_routr=False,p_node=None):
 		routr_ok = True
 		
 	ssh = 'ssh '+ d_node['usr'] + '@'+ d_node['ip']
+	#这里的ip是du的ip ssh toor4nsn@rap
 	if d_node.has_key('opt'):
 		ssh += d_node['opt']
+		#用复杂的ssh -o等参数的方式登陆
 	if routr_ok:
+	#默认false，走不进这里，先不看2.1
 		if not d_node['routr']['prompt'] == d_node['prompt']:
 			esp.append(d_node['routr']['prompt'])
 	elif not d_node['prompt'] == n['prompt']:
+	#这里的n是s_node，也就是get_cu里面带的owner，那么owner的prompt是$，跟d_node里面的>是不一样的，所以走进这个elif not
 		esp.append(n['prompt'])
+		#append '>'
 	rsp = {'?':'yes','assword:':d_node['pwd']} #,'denied, please try again':'\x03'
 	ret,buf = send_str_wait_str(s_node['chan'], s_node['name'], ssh, d_node['prompt'], esp, rsp)
-	logging.debug('login:'+str(ret) + ', s,d, p:'+ s_node['name'] +','+d_node['name'] + ', '+n['name'] +'  esp:' + ''.join(esp) )
+	#试图从channel的shell里ssh到DU，但是现在应该是在oam上吧，因为s_node是oam
 
+	logging.debug('login:'+str(ret) + ', s,d, p:'+ s_node['name'] +','+d_node['name'] + ', '+n['name'] +'  esp:' + ''.join(esp) )
+    #ret应该是result的意思，也就是result好的话，那么result为0
 	if ret:
+	#ret正常情况下也是0，所以不走进此if
 		result = 2
 	if d_node.has_key('prompt_kw') and not d_node['prompt_kw'] in buf:
+		#du的prompt_kw是@fct, buf的prompt_kw是看登进去没，如果登进去了，那就是一样的，
+		#所以正常情况下，不走进这个if
 		result = 3
 	if result:
+	#正常不走进此if
 		logging.error("_" + s_node['name'] + " Login " + d_node['name'] + " failed!")
 		if routr_ok and d_node['routr']['prompt_kw'] in buf:
 			send_str_wait_str(s_node['chan'], s_node['name'], 'exit', s_node['prompt'])
 	return result
+	#正常result是0
 
 def end_login_target(s_node,d_node,prompt,skip_routr=False):
 	if not skip_routr:
+	#一般不会填这个，所以要走进来这个if not
 		if d_node.has_key('routr'):
+		#du没有这个routr
 			send_str_wait_str(s_node['chan'], s_node['name'], 'exit', d_node['routr']['prompt'])
 	send_str_wait_str(s_node['chan'], s_node['name'], 'exit\n', prompt)
 				
@@ -503,10 +520,14 @@ def all_nodes_fnames(nodes):
 		return names
 		
 def router_fnames(node,nodes):		 #??
+	#host是一个全球变量，所以取log的思路是先去CU里面，存一堆VM的名字到host里面，然后一个个去登陆，取log
+	#再clear，然后把DU里面的各个abil的master和slave存到host里面，然后一个个登陆并去取log
 	names = node['name'] + "_* "
 	for i in range(0, len(hosts)):
 		if nodes[i]:
+		#当hosts里面还有东西时
 			if nodes[i].has_key('routr'):
+			#DU的host里面才有routr这种参数
 				if nodes[i]['routr']['ip'] == node['ip']:
 					names += nodes[i]['name'] + "*_ "
 	return names
@@ -514,16 +535,25 @@ def router_fnames(node,nodes):		 #??
 def clean_up(node, all_files=0, nodes=None): 
 	send_str_wait_str(node['chan'], node['name'], "cd /tmp\n", node['prompt'])
 	names = node['name'] + "_*"
+	#names = OAM-0_*
 	if not all_files:
+	#clean的时候是1，所以不走进这个if not,进else
+	#bat_log里面这里是0，所以要进
 		if nodes is not None:
+		#这里指nodes里面，也就是hosts里面还有没有没登陆的host，如果有就走进来，
 			names = router_fnames(node,nodes)
+			#返回host里面有routr的names，都变成name*_
 	else:
 		if nodes is not None:
 			names = all_nodes_fnames(nodes)
+			#返回所有host里面的names，都变成name_*
 	sh = ''
 	if '$ ' in node['prompt']:
 		sh += 'sudo '
 	sh += 'rm -f ' + names
+	#sudo rm -f OAM_*
+	#sudo rm -f name*_是删的啥子东西？？？去了公司一定要试下这段指令
+	#这里为什么会用shell去删除这些host，难道在哪儿保存了下来？？
 	send_str_wait_str(node['chan'], node['name'], sh, node['prompt'])
 	
 def sftp_cb(bytes,tot_bytes):
@@ -643,7 +673,11 @@ def get_if(ch,name,prompt,ifc):
 
 def get_cur_ses(s_node):
 	r,buf = send_str_wait_str(s_node['chan'],s_node['name'],'who',s_node['prompt'])
+	#执行who的时候返回who 命令显示关于当前在本地系统上的所有用户的信息
 	s = re.findall('(.+\(((?:[0-9]{1,3}\.){3}[0-9]{1,3})\))',buf)
+	#.匹配任意的字符 
+	#+匹配前面的子表达式一次或多次
+	#后面是获取IP
 	return len(s)
 
 def pending_bar(i):
@@ -664,6 +698,9 @@ def pending_bar(i):
 	print '\b\b\b'
 	
 def get_cu_hosts(s_node, du_ip=None):
+	#这里的s_node是CU，那也就是说，去DU是从CU ssh过去的
+	#这个函数的主要内容是获取CU的各个VM的名字，写好字典，并放进hosts这个list
+	#最后会尝试进入DU，然后获得rlan0的IP，为什么要获得rlan0的ip，是为了进abil？？
 	global bar_stop
 	if du_ip:
 		buf = 'cpcl-0.local,cpif-0.local,cpue-0.local,upue-0.local,cpnb-0.local,db-0.local'
@@ -770,11 +807,15 @@ def get_cu_hosts(s_node, du_ip=None):
 			h['prompt'] = " >"
 			h['prompt_kw'] = '@fct'
 			if not login_target(s_node, h):
+			#这里的s_node是oam
+			#正常情况下lonin_target是回0的，所以正常是要走进这个if not的
 				h['rip'] = get_if(s_node['chan'],s_node['name'],h['prompt'],'rlan0')
+				#也就是说已经进去到DU了，然后要获取rlan0的IP
 				if h['rip']:
 					hosts.append(h)
 					i+=1
 				end_login_target(s_node,h,s_node['prompt'])
+				#这个函数貌似是为了退出来(执行exit指令)
 			else:
 				#h['rip'] = 'fct'
 				continue
@@ -794,6 +835,8 @@ def get_du_hosts(s_node,d_node):
 		h['prompt_kw'] = 'b:'
 		hosts.append(h)	
 	ip = re.findall('(fsp-\d-\d.)\s\(\d',buf) 
+	#\d匹配一个数字字符0-9，.匹配单个字符，\s匹配空白字符
+	#这儿最好结合环境一起看，大意反正是获取DU和RU的一些host
 	if ip:
 		ip = {}.fromkeys(ip).keys()  #remove duplication
 		for i,val in enumerate(ip):
@@ -834,8 +877,10 @@ def add_rap_rout(s_node,d_node):
 		end_login_target(s_node, d_node, s_node['prompt'])
 
 def run_log_r():
+	#没看懂这个函数想干嘛，开多线程？
 	global hosts
 	ses = oam_max_ses - get_cur_ses(owner) -1
+	#oam_max_ses =10这个10它是怎么得来的，这个ses是指的session
 	if ses <= 0:
 		logging.fatal('Too many open sessions, no possible for logs!')
 		ses = 0
@@ -849,9 +894,13 @@ def run_log_r():
 		logging.debug('n,i,j:'+str(n)+','+str(i)+','+str(j))
 		if n > ses:
 			j += ses
+			#j = j+ses=ses
 			bat_logs(i,j-1)
+			#bat_logs(0,ses-1)
 			i = j
+			#i=ses
 			n -= ses
+			#n=n-ses
 			continue
 		else:
 			bat_logs(i,j+n-1)
@@ -935,11 +984,15 @@ def bat_logs(i,j):
 	while i<=j:
 		if hosts[i]:
 			ret, hosts[i]['conn'], hosts[i]['chan'] = start_ses()
+			#为什么又开始ssh到oam去？？啥意思？
+			#A: 为了进其他的 VM和DU，同一都先进入oam
 			if ret:
+			#进这个if就说明ssh到oam失败了
 				logging.error(hosts[i]['name'] + ' starting failed:' + str(ret) + ', skipped!')
 				i+=1
 				continue
 			if login_target(hosts[i], hosts[i],False,owner):
+			#分别进入各个hosts，如果能进去，则返回0，则不进此if
 				logging.error("_" + hosts[i]['name'] + " login failed, skipped!")
 				i+=1
 				continue
@@ -951,9 +1004,13 @@ def bat_logs(i,j):
 					continue
 									
 			clean_up(hosts[i],0,hosts)
+			#这儿为啥要JBclean？？？？？？
+			#A:这里的clean file是1，与之前带0是不一样的，搞懂了这两个的区别，应该能理解为什么这里要clean了
 			hosts[i]['files'] = 0
 					
 			hosts[i]['th'] = threading.Thread(target=log_r, args=(hosts[i], hosts))
+			#这里的target是要执行方法，后面的args是要传入的参数
+			#疑问，后面的thread既然不返回什么东西，怎么把后面这坨赋值给这个host[i]['th']??
 			threads.append(hosts[i]['th'])
 			logging.info( "_" + hosts[i]['name'] + " thread ready: " + hosts[i]['th'].getName() )
 			logging.debug(hosts[i])			
@@ -1064,10 +1121,13 @@ if __name__=="__main__":
 	logging.debug(owner)
 	
 	get_cu_hosts(owner,rap)		
-	
+	#感觉是去登陆到CU的VM，但是里面有登陆到DU的用户名和信息，不知道为啥
+	#主要是去让hosts这个list里面填上VM的host，以及DU的host的字典信息
 	clean_up(owner,1,hosts)
-	
+	#删除hosts里面存下来的，但是存在哪儿的，现在还不明白
+	#懂了，是为了把之前可能留下来的log给删除，删的是OAM_*
 	for i in range(0, len(hosts)):
+	#如果前面有填rap的话，这里就会进来，然后再获取一波du的hosts
 		if hosts[i]:
 			if 'fctla' in hosts[i]['name']:				
 				get_du_hosts(owner,hosts[i])
@@ -1077,6 +1137,7 @@ if __name__=="__main__":
 	for i in range(len(hosts)):
 		hosts[i]['files'] = 0
 		hosts[i]['bar'] = '{:<6}'.format(hosts[i]['name']) + ": [{}] {:.0f}% {}\n"
+		#这是在干嘛呢？？？
 		hosts[i]['bar_i'] = 0
 		if 'fctlb' in hosts[i]['name']:
 			hosts[i]['pre'] = bb2_misc_logs 
@@ -1087,8 +1148,10 @@ if __name__=="__main__":
 			
 	if not tti_on == TTI_ONLY:
 		ret = run_log_r()
+		#开多线程，收集log
 
 	log_download(owner, hosts)
+	#这个没有完全仔细看。2.2
 	#clean_up(node, all_files, nodes)
 	close_ses(owner)
 	
@@ -1098,5 +1161,13 @@ if __name__=="__main__":
 
 #疑问1：他为啥要获得internal的IP？？拿来干啥
 #A: 好像是在这里get_cu_hosts里用到了h['om'] = owner['internal']，但是为啥要获得这个东西，还是不明白
-
-
+#A: 好像是为了在这个里面add_rap_rout，去给RU加route的
+#疑问2: #routr是什么东西？？哪儿来的？？？0129
+#A: 它好像是在这加路由，用internal网络从CU到DU，感觉这个B很有想法
+#疑问3: 454行 试图从channel的shell里ssh到DU，但是现在我是在oam还是在本身的电脑上，我还没搞清楚
+#疑问4: 1076行 #感觉是去登陆到CU的VM，但是里面有登陆到DU的用户名和信息，不知道为啥
+#疑问5: #这里为什么会用shell去删除这些host，难道在哪儿保存了下来？？
+#A： 懂了，是为了把之前可能留下来的log给删除，删的是OAM_*
+#疑问6: #最后会尝试进入DU，然后获得rlan0的IP，为什么要获得rlan0的ip，是为了进abil？？
+#疑问7: #oam_max_ses =10这个10它是怎么得来的，这个ses是指的session吗？？
+#疑问8: #疑问，后面的thread既然不返回什么东西，怎么把后面这坨赋值给这个host[i]['th']??
