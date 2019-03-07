@@ -1,0 +1,6 @@
+alias pf='echo /opt/nokia/SS_MzOam/cloud-siteoam/siteoam/profiles/5G18A/ '
+alias nr5gConfGen='echo /opt/nokia/SS_MzOam/cloud-siteoam/siteoam/src/confgen/5g/ '
+alias scf='echo /opt/nokia/SS_MzOam/cloud-siteoam/siteoam/site_conf/5G18A/ '
+alias bim='cd /mnt/services/mzoam/config/4.135.336/bims/ '
+alias rac='echo /opt/nokia/SS_MzOam/cloud-racoam/logs/ '
+alias sit='echo /opt/nokia/SS_MzOam/cloud-siteoam/siteoam/logs/ '
