@@ -1,16 +1,16 @@
 #2018-02-24 created by Yang Liyong A
 
-gNB_OAM_SSHInfo={"ip":"10.57.203.2","user":"robot","password":"xx"}
+gNB_OAM_SSHInfo={"ip":"10.57.203.2","user":"aa","password":"xx"}
 gNB_Asik_SSHInfo={"ip":"192.168.255.1","user":"aa","password":"xx"}
 gNB_RRU_SSHInfo={"ip":"192.168.100.5","user":"root","password":"aa"}
 
-gNB_BB2_SSHInfo={"ip":"1.1.1.1","user":"_rcpadmin","password":"RCP_owner"}
+gNB_BB2_SSHInfo={"ip":"1.1.1.1","user":"aa","password":"xxx"}
 gNB_Asia_SSHInfo={"ip":"192.168.2.60","user":"aa","password":"xx"}
 
-ftp_SSHInfo={"ip":"10.56.6.5","user":"tdlte","password":"tdlte"}
+ftp_SSHInfo={"ip":"10.56.6.5","user":"aa","password":"tdlte"}
 
 airphone_OAM_SSHInfo={"ip":"135.251.156.36","user":"xx","password":"xx"}
-LTEemu_SSHInfo={"ip":"10.57.203.4","user":"nokia","password":"nokia123"}
+LTEemu_SSHInfo={"ip":"10.57.203.4","user":"xx","password":"aa"}
 airphone_Asia_SSHInfo={"ip":"167.167.166.61","user":"aa","password":"xx"}
 eGate_SSHInfo={"ip":"10.57.203.3","user":"aa","password":"xx"}
 
