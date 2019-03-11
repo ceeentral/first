@@ -7,7 +7,7 @@
 
 import paramiko
 import threading
-import ConfigParser,os
+import configparser,os
 
 def loginSSH_enable(SSHInfo):
     #print "start to test", SSHInfo
@@ -17,7 +17,7 @@ def loginSSH_enable(SSHInfo):
         client.connect(SSHInfo["ip"],username=SSHInfo["user"],password=SSHInfo["password"])
         client.close()
     except:
-        print "SSH login fail, IP is ", SSHInfo["ip"], "username is ", SSHInfo["user"], "password is", SSHInfo["password"]
+        print("SSH login fail, IP is ", SSHInfo["ip"], "username is ", SSHInfo["user"], "password is", SSHInfo["password"])
         return False
     return True
 
@@ -29,12 +29,12 @@ def loginSSH_test(SSHInfo):
         client.connect(SSHInfo["ip"],username=SSHInfo["user"],password=SSHInfo["password"])
         client.close()
     except:
-        print "SSH login fail, IP is ", SSHInfo["ip"], "username is ", SSHInfo["user"], "password is", SSHInfo["password"]
+        print("SSH login fail, IP is ", SSHInfo["ip"], "username is ", SSHInfo["user"], "password is", SSHInfo["password"])
         return False
     return True
 
 def loginSSH(SSHInfo):
-    print "try to ssh to "+SSHInfo["ip"]
+    print("try to ssh to "+SSHInfo["ip"])
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(SSHInfo["ip"],username=SSHInfo["user"],password=SSHInfo["password"])
@@ -42,15 +42,15 @@ def loginSSH(SSHInfo):
 
 def execCommands(SSHInfo, commands):
     client=loginSSH(SSHInfo)
-    print "success to ssh to "+SSHInfo["ip"]
+    print("success to ssh to "+SSHInfo["ip"])
     for command in commands:
-        print command
+        print(command)
         stdin,stdout,stderr = client.exec_command(command)
         #if "ssh" in command:
         #    continue
         #print stderr.readlines()
         for line in stdout.readlines():
-            print line,
+            print(line, end=' ')
     client.close()
 
 def execCommands_security(SSHInfo, commands): #2018-03-02 add
@@ -59,16 +59,16 @@ def execCommands_security(SSHInfo, commands): #2018-03-02 add
 
 def execCommand(SSHInfo, command): #2018-02-13 add
     client=loginSSH(SSHInfo)
-    print "success to ssh to "+SSHInfo["ip"]
+    print("success to ssh to "+SSHInfo["ip"])
     #for command in commands:
-    print command
+    print(command)
     stdin,stdout,stderr = client.exec_command(command)
         #if "ssh" in command:
         #    continue
         #print stderr.readlines()
     result=stdout.readlines()
-    #for line in result:    #delete print 2018-03-02
-    #    print line,        #delete print 2018-03-02
+    for line in result:    #delete print 2018-03-02
+        print(line),        #delete print 2018-03-02
     client.close()
     return result
 
@@ -86,20 +86,20 @@ def loginSftp(SSHInfo):
     return tran, sftp
 
 def uploadFile(SSHInfo, localpath, remotepath):
-    print "try to upload "+localpath+" to "+SSHInfo["ip"]
+    print("try to upload "+localpath+" to "+SSHInfo["ip"])
     tran, sftp = loginSftp(SSHInfo)
     #uploadFile(sftp, localpath, remotepath)
     sftp.put(localpath,remotepath)
-    print "success to upload "+localpath+" to "+SSHInfo["ip"]
+    print("success to upload "+localpath+" to "+SSHInfo["ip"])
     #downloadFile
     tran.close()
 
 def downloadFile(SSHInfo, remotepath, localpath):
-    print "try to download "+remotepath+" from "+SSHInfo["ip"]
+    print("try to download "+remotepath+" from "+SSHInfo["ip"])
     tran, sftp = loginSftp(SSHInfo)
     #uploadFile(sftp, localpath, remotepath)
     sftp.get(remotepath, localpath)
-    print "success to download "+localpath+" from "+SSHInfo["ip"]
+    print("success to download "+localpath+" from "+SSHInfo["ip"])
     #downloadFile
     tran.close()
 
@@ -116,13 +116,13 @@ def downloadFile_security(SSHInfo, remotepath, localpath): #2018-03-02 add
             #airphone L1
             try:
                 downloadFile(SSHInfo, remotefolder+f, localfolder + f)
-            except Exception , e:
-                print "Error: download file error: ", e
+            except Exception as e:
+                print("Error: download file error: ", e)
 
 
 def get_configInfo(options,target):
 
-    cf = ConfigParser.SafeConfigParser()
+    cf = configparser.SafeConfigParser()
     cf.read(os.getcwd() + r'\config\config.ini')
     config = cf.get(options, target)
     return config

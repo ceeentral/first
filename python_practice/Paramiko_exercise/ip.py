@@ -2,7 +2,7 @@
 #2018-10-29 modify by Wang jianfeng ,chang to Configerparse and Enum
 
 from enum import Enum,unique
-from ssh_yly_new import *
+from sshnew import *
 
 
 class HW_IP(Enum):
