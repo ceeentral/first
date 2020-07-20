@@ -521,7 +521,7 @@ def all_nodes_fnames(nodes):
 		
 def router_fnames(node,nodes):		 #??
 	#host是一个全球变量，所以取log的思路是先去CU里面，存一堆VM的名字到host里面，然后一个个去登陆，取log
-	#再clear，然后把DU里面的各个abil的master和slave存到host里面，然后一个个登陆并去取log
+	#再clear，然后把DU里面的各个abil的main和subordinate存到host里面，然后一个个登陆并去取log
 	names = node['name'] + "_* "
 	for i in range(0, len(hosts)):
 		if nodes[i]:
